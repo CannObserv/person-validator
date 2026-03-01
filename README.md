@@ -15,4 +15,6 @@ uv run pytest
 uv run ruff check .
 ```
 
-See [PLAYBOOKS.md](PLAYBOOKS.md) for the full set of development commands.
+See [AGENTS.md](AGENTS.md) for the full set of development commands and
+[docs/local-development.md](docs/local-development.md) for local auth header
+injection and dev proxy setup.

@@ -121,7 +121,25 @@ USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
 
 # Superuser bootstrap email priority:
-# 1. X-ExeDev-Email header (handled at runtime)
-# 2. ADMIN_DEV_EMAIL from env file
-# 3. Email from ~/.config/shelley/AGENTS.md
+# 1. ADMIN_DEV_EMAIL from env file
+# 2. Email from ~/.config/shelley/AGENTS.md
+# At runtime, the matching X-ExeDev-Email header triggers promotion.
 ADMIN_DEV_EMAIL = os.environ.get("ADMIN_DEV_EMAIL", "")
+if not ADMIN_DEV_EMAIL:
+    # Fall back to shelley config before giving up
+    try:
+        _shelley_agents = Path.home() / ".config" / "shelley" / "AGENTS.md"
+        if _shelley_agents.exists():
+            import re as _re
+
+            _match = _re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", _shelley_agents.read_text())
+            if _match:
+                ADMIN_DEV_EMAIL = _match.group(0)
+    except Exception:
+        pass
+
+if not ADMIN_DEV_EMAIL:
+    raise ImproperlyConfigured(
+        "ADMIN_DEV_EMAIL is not set and could not be detected from "
+        "~/.config/shelley/AGENTS.md. Add it to the project 'env' file."
+    )

@@ -149,5 +149,8 @@ If a playbook name exists in both files, the project-level definition takes prec
 
 - Keep functions and methods small and focused.
 - Prefer explicit imports over wildcard imports.
+- **No inline module imports.** All `import` and `from … import` statements
+  belong at the top of the file — in both production and test code. Do not
+  import inside functions, methods, or test bodies.
 - Write docstrings for public modules, classes, and functions.
 - Test file names mirror source file names: `src/foo.py` → `tests/test_foo.py`.

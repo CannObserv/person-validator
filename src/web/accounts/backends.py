@@ -9,34 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 def _get_admin_email() -> str:
-    """Resolve the admin bootstrap email using priority chain.
+    """Return the configured admin bootstrap email.
 
-    Priority:
-    1. ADMIN_DEV_EMAIL from Django settings (sourced from env file)
-    2. Email from ~/.config/shelley/AGENTS.md
+    Reads from ``settings.ADMIN_DEV_EMAIL``, which is resolved at startup
+    from the env file or ~/.config/shelley/AGENTS.md (see settings.py).
+    Settings validation guarantees this is non-empty at boot time.
     """
-    # Priority 1: settings
-    admin_email = getattr(settings, "ADMIN_DEV_EMAIL", "")
-    if admin_email:
-        return admin_email
-
-    # Priority 2: shelley config
-    try:
-        from pathlib import Path
-
-        agents_path = Path.home() / ".config" / "shelley" / "AGENTS.md"
-        if agents_path.exists():
-            content = agents_path.read_text()
-            # Look for email pattern in the file
-            import re
-
-            match = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", content)
-            if match:
-                return match.group(0)
-    except Exception:
-        logger.debug("Could not read shelley AGENTS.md for admin email", exc_info=True)
-
-    return ""
+    return getattr(settings, "ADMIN_DEV_EMAIL", "")
 
 
 class ExeDevEmailBackend:
@@ -79,15 +58,10 @@ class ExeDevEmailBackend:
             email=exedev_email,
         )
 
-        # Superuser bootstrap: only when no superusers exist yet
+        # Superuser bootstrap: promote the configured admin on first visit,
+        # but only when no superusers exist yet.
         if not User.objects.filter(is_superuser=True).exists():
-            admin_email = _get_admin_email()
-            if not admin_email:
-                logger.warning(
-                    "No administrator email configured. Set ADMIN_DEV_EMAIL in "
-                    "the project 'env' file to enable superuser bootstrap."
-                )
-            elif exedev_email == admin_email:
+            if exedev_email == _get_admin_email():
                 user.is_superuser = True
                 user.is_staff = True
                 user.save(update_fields=["is_superuser", "is_staff"])
