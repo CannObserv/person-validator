@@ -31,14 +31,14 @@ person-validator/
 ├── pyproject.toml    # Project metadata & tool config
 ├── AGENTS.md         # This file — agent conventions
 ├── PLAYBOOKS.md      # Frequently-used development commands
-├── .env              # Local secrets (git-ignored)
+├── env               # Local secrets (git-ignored)
 └── README.md
 ```
 
 ## Secrets
 
-- GitHub PAT is stored in `.env` as `GITHUB_TOKEN`.
-- `.env` is git-ignored. Never commit secrets.
+- GitHub PAT is stored in `env` as `GITHUB_TOKEN`.
+- `env` is git-ignored. Never commit secrets.
 
 ## Playbooks
 

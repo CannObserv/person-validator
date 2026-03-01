@@ -61,5 +61,5 @@ uv sync
 
 ```bash
 # Source the token into your shell
-export $(grep GITHUB_TOKEN .env | xargs)
+export $(grep GITHUB_TOKEN env | xargs)
 ```
