@@ -1,10 +1,12 @@
 """Tests for exe.dev email authentication backend and middleware."""
 
+from unittest.mock import patch as mock_patch
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory
 
-from src.web.accounts.backends import ExeDevEmailBackend
+from src.web.accounts.backends import ExeDevEmailBackend, _get_admin_email
 from src.web.accounts.middleware import ExeDevEmailAuthMiddleware
 
 User = get_user_model()
@@ -120,6 +122,22 @@ class TestSuperuserBootstrap:
         assert user.is_superuser is False
         assert user.is_staff is False
 
+    def test_no_admin_configured_logs_warning(self, rf, backend, settings, caplog):
+        """When no admin email is configured, log a warning and do NOT promote."""
+        settings.ADMIN_DEV_EMAIL = ""
+        request = rf.get("/")
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="src.web.accounts.backends"):
+            user = backend.authenticate(
+                request, exedev_email="anyone@example.com", exedev_userid="usr_anyone"
+            )
+
+        assert user.is_superuser is False
+        assert user.is_staff is False
+        assert "No administrator email configured" in caplog.text
+
     def test_superuser_bootstrap_only_when_no_superusers_exist(self, rf, backend, settings):
         """Once a superuser exists, no more auto-promotion."""
         settings.ADMIN_DEV_EMAIL = "admin@example.com"
@@ -186,3 +204,28 @@ class TestExeDevMiddleware:
         middleware(request)
 
         assert not called["user"].is_authenticated
+
+
+class TestGetAdminEmail:
+    """Test the _get_admin_email helper."""
+
+    def test_returns_setting_when_set(self, settings):
+        """ADMIN_DEV_EMAIL setting takes priority."""
+        settings.ADMIN_DEV_EMAIL = "from-settings@example.com"
+        assert _get_admin_email() == "from-settings@example.com"
+
+    def test_falls_back_to_shelley_config(self, settings, tmp_path):
+        """When setting is empty, parse email from shelley AGENTS.md."""
+        settings.ADMIN_DEV_EMAIL = ""
+        agents_md = tmp_path / ".config" / "shelley" / "AGENTS.md"
+        agents_md.parent.mkdir(parents=True)
+        agents_md.write_text("You are running on an exe.dev VM.\nContact: dev@test.org\n")
+
+        with mock_patch("pathlib.Path.home", return_value=tmp_path):
+            assert _get_admin_email() == "dev@test.org"
+
+    def test_returns_empty_when_nothing_configured(self, settings, tmp_path):
+        """When no setting and no shelley config, return empty string."""
+        settings.ADMIN_DEV_EMAIL = ""
+        with mock_patch("pathlib.Path.home", return_value=tmp_path):
+            assert _get_admin_email() == ""

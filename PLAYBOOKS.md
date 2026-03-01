@@ -46,14 +46,15 @@ Format the review as a structured report:
 
 2. **What's solid** — brief list of things done well (reinforces good patterns; not filler)
 
-3. **Numbered findings** — every actionable item gets a unique number for easy reference
-   - **Top-level items:** `1.`, `2.`, `3.` (ever-incrementing, never reset)
+3. **Numbered findings** — every actionable item gets a single, globally unique number
+   - **Numbering is sequential across all severity groups.** Do NOT restart at 1 for each group. If bugs are items 1–3, the first "issue to fix" is 4, the first "minor" continues from there, etc.
+   - **Top-level items:** `1.`, `2.`, `3.` (ever-incrementing, never reset within a review round)
    - **Sub-items:** `2a.`, `2b.` (for related points under one finding)
    - Each item includes:
      - **What:** precise description of the issue with file/line references
      - **Why it matters:** impact (bug? style? future maintenance?)
      - **Suggested fix:** concrete, not vague (code snippets when helpful)
-   - Group by severity:
+   - Group by severity (but numbering flows continuously through all groups):
      - 🔴 **Bugs** — incorrect behavior, crashes, data corruption risk
      - 🟡 **Issues to fix** — not broken but should be addressed before shipping
      - 💭 **Minor / observations** — style, optional improvements, things noted but not blocking

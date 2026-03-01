@@ -22,6 +22,17 @@ class ULIDField(models.CharField):
         kwargs.setdefault("editable", False)
         super().__init__(*args, **kwargs)
 
+    def deconstruct(self):
+        """Remove kwargs that match ULIDField defaults so migrations stay clean."""
+        name, path, args, kwargs = super().deconstruct()
+        if kwargs.get("max_length") == 26:
+            del kwargs["max_length"]
+        if kwargs.get("default") is _generate_ulid:
+            del kwargs["default"]
+        if kwargs.get("editable") is False:
+            del kwargs["editable"]
+        return name, path, args, kwargs
+
     def get_internal_type(self) -> str:
         """Return the database column type."""
         return "CharField"

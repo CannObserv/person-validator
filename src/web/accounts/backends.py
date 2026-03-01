@@ -82,11 +82,12 @@ class ExeDevEmailBackend:
         # Superuser bootstrap: only when no superusers exist yet
         if not User.objects.filter(is_superuser=True).exists():
             admin_email = _get_admin_email()
-            # Priority 0: the current authenticated email from X-ExeDev-Email
-            # (the issue says "X-ExeDev-Email header (current authenticated user)" is priority 1)
-            # If no ADMIN_DEV_EMAIL is set, any first user gets promoted
-            # If ADMIN_DEV_EMAIL is set, only matching email gets promoted
-            if not admin_email or exedev_email == admin_email:
+            if not admin_email:
+                logger.warning(
+                    "No administrator email configured. Set ADMIN_DEV_EMAIL in "
+                    "the project 'env' file to enable superuser bootstrap."
+                )
+            elif exedev_email == admin_email:
                 user.is_superuser = True
                 user.is_staff = True
                 user.save(update_fields=["is_superuser", "is_staff"])
