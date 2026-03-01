@@ -52,16 +52,32 @@ class ExeDevEmailBackend:
         except User.DoesNotExist:
             pass
 
-        # Create new user
+        # Check for an existing user with this email whose user-ID has
+        # changed (e.g. exe.dev account migration).  Migrate the record
+        # to the new username rather than creating a duplicate.
+        try:
+            user = User.objects.get(email=exedev_email)
+            old_username = user.username
+            user.username = exedev_userid
+            user.save(update_fields=["username"])
+            logger.info(
+                "Migrated user %s from username %s to %s",
+                exedev_email,
+                old_username,
+                exedev_userid,
+            )
+            return user
+        except User.DoesNotExist:
+            pass
+
+        # Create new user — no existing record for this userid or email.
         user = User.objects.create_user(
             username=exedev_userid,
             email=exedev_email,
         )
 
-        # Admin promotion: always grant staff + superuser to the configured
-        # admin email.  This covers initial bootstrap *and* the case where
-        # the exe.dev user-ID changes (e.g. account migration), which
-        # creates a fresh Django user for the same email address.
+        # Admin promotion: grant staff + superuser to the configured admin
+        # email on first account creation.
         if exedev_email == _get_admin_email():
             user.is_superuser = True
             user.is_staff = True
