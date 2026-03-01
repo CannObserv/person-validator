@@ -58,14 +58,15 @@ class ExeDevEmailBackend:
             email=exedev_email,
         )
 
-        # Superuser bootstrap: promote the configured admin on first visit,
-        # but only when no superusers exist yet.
-        if not User.objects.filter(is_superuser=True).exists():
-            if exedev_email == _get_admin_email():
-                user.is_superuser = True
-                user.is_staff = True
-                user.save(update_fields=["is_superuser", "is_staff"])
-                logger.info("Bootstrapped superuser: %s (%s)", exedev_email, exedev_userid)
+        # Admin promotion: always grant staff + superuser to the configured
+        # admin email.  This covers initial bootstrap *and* the case where
+        # the exe.dev user-ID changes (e.g. account migration), which
+        # creates a fresh Django user for the same email address.
+        if exedev_email == _get_admin_email():
+            user.is_superuser = True
+            user.is_staff = True
+            user.save(update_fields=["is_superuser", "is_staff"])
+            logger.info("Promoted admin user: %s (%s)", exedev_email, exedev_userid)
 
         return user
 

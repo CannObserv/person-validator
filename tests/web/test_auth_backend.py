@@ -134,21 +134,57 @@ class TestSuperuserBootstrap:
         assert user.is_superuser is False
         assert user.is_staff is False
 
-    def test_superuser_bootstrap_only_when_no_superusers_exist(self, rf, backend, settings):
-        """Once a superuser exists, no more auto-promotion."""
+    def test_admin_email_promoted_even_when_superusers_exist(self, rf, backend, settings):
+        """Admin email gets promoted even if other superusers already exist.
+
+        This handles the case where the exe.dev user ID changes (e.g. account
+        migration), creating a new Django user for the same admin email.
+        """
         settings.ADMIN_DEV_EMAIL = "admin@example.com"
         request = rf.get("/")
 
-        # First admin bootstrapped
+        # First admin bootstrapped via a different user ID
         backend.authenticate(request, exedev_email="admin@example.com", exedev_userid="usr_admin1")
 
-        # Second matching email should NOT be promoted
+        # Same admin email, new user ID — should still be promoted
         user2 = backend.authenticate(
             request, exedev_email="admin@example.com", exedev_userid="usr_admin2"
         )
-        # Already a superuser exists, so this new user should not be auto-promoted
-        # (they'll be a new user since different userid)
+        assert user2.is_superuser is True
+        assert user2.is_staff is True
+
+    def test_non_admin_not_promoted_when_superusers_exist(self, rf, backend, settings):
+        """Non-admin email users are never promoted, even after bootstrap."""
+        settings.ADMIN_DEV_EMAIL = "admin@example.com"
+        request = rf.get("/")
+
+        # Bootstrap the admin
+        backend.authenticate(request, exedev_email="admin@example.com", exedev_userid="usr_admin1")
+
+        # Random user should NOT be promoted
+        user2 = backend.authenticate(
+            request, exedev_email="random@example.com", exedev_userid="usr_random"
+        )
         assert user2.is_superuser is False
+        assert user2.is_staff is False
+
+    def test_admin_returning_user_stays_promoted(self, rf, backend, settings):
+        """An existing admin user retains superuser on subsequent logins."""
+        settings.ADMIN_DEV_EMAIL = "admin@example.com"
+        request = rf.get("/")
+
+        user1 = backend.authenticate(
+            request, exedev_email="admin@example.com", exedev_userid="usr_admin"
+        )
+        assert user1.is_superuser is True
+
+        # Same user logs in again
+        user2 = backend.authenticate(
+            request, exedev_email="admin@example.com", exedev_userid="usr_admin"
+        )
+        assert user2.pk == user1.pk
+        assert user2.is_superuser is True
+        assert user2.is_staff is True
 
 
 @pytest.mark.django_db
