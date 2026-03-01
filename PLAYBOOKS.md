@@ -63,3 +63,32 @@ uv sync
 # Source the token into your shell
 export $(grep GITHUB_TOKEN env | xargs)
 ```
+
+## Django Management
+
+```bash
+# Run migrations
+DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django migrate
+
+# Create migrations after model changes
+DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django makemigrations
+
+# Collect static files
+DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django collectstatic --noinput
+
+# Run Django dev server (with exe.dev header injection for local testing)
+DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django runserver 0.0.0.0:8000
+```
+
+## Service Management
+
+```bash
+# Start/restart the Django web service
+sudo systemctl restart person-validator-web
+
+# Check service status
+sudo systemctl status person-validator-web
+
+# View logs
+journalctl -u person-validator-web -f
+```
