@@ -1,21 +1,24 @@
 """API key authentication dependency for FastAPI.
 
-Reads the X-API-Key header, hashes it (SHA-256), and validates against
-the keys_apikey table in the shared SQLite database.
+Reads the X-API-Key header and delegates validation to the shared
+``src.core.key_validation`` module.
 """
 
-import hashlib
-from datetime import UTC, datetime
+import sqlite3
 
-from fastapi import HTTPException, Security
+from fastapi import Depends, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
-from src.api.db import get_connection
+from src.api.db import get_db
+from src.core.key_validation import validate_api_key
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-def require_api_key(api_key: str | None = Security(_api_key_header)) -> dict:
+def require_api_key(
+    api_key: str | None = Security(_api_key_header),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
     """FastAPI dependency that validates an API key.
 
     Returns a dict with key metadata on success.
@@ -24,35 +27,15 @@ def require_api_key(api_key: str | None = Security(_api_key_header)) -> dict:
     if api_key is None:
         raise HTTPException(status_code=401, detail="API key required")
 
-    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT id, is_active, expires_at FROM keys_apikey WHERE key_hash = ?",
-            (key_hash,),
-        ).fetchone()
+    result = validate_api_key(api_key, conn)
 
-        if row is None:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+    if not result.is_valid:
+        status = 401 if result.rejection_reason == "invalid" else 403
+        detail_map = {
+            "invalid": "Invalid API key",
+            "revoked": "API key revoked",
+            "expired": "API key expired",
+        }
+        raise HTTPException(status_code=status, detail=detail_map[result.rejection_reason])
 
-        if not row["is_active"]:
-            raise HTTPException(status_code=403, detail="API key revoked")
-
-        if row["expires_at"] is not None:
-            expires = datetime.fromisoformat(row["expires_at"])
-            if expires.tzinfo is None:
-                expires = expires.replace(tzinfo=UTC)
-            if expires <= datetime.now(UTC):
-                raise HTTPException(status_code=403, detail="API key expired")
-
-        # Update last_used_at
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "UPDATE keys_apikey SET last_used_at = ?, updated_at = ? WHERE id = ?",
-            (now, now, row["id"]),
-        )
-        conn.commit()
-
-        return {"key_id": row["id"]}
-    finally:
-        conn.close()
+    return {"key_id": result.key_id}

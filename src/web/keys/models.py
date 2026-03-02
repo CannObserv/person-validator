@@ -2,12 +2,14 @@
 
 import hashlib
 import secrets
+import sqlite3
 
 from django.conf import settings
+from django.db import connection as django_connection
 from django.db import models
-from django.utils import timezone
 
 from src.core.fields import ULIDField
+from src.core.key_validation import validate_api_key
 
 
 class APIKey(models.Model):
@@ -73,25 +75,28 @@ class APIKey(models.Model):
     def validate(cls, raw_key: str) -> "APIKey | None":
         """Validate a raw API key.
 
-        Returns the APIKey instance if valid, or None if the key is
-        wrong, revoked, or expired. Updates last_used_at on success.
+        Delegates to the shared ``core.key_validation`` module for the
+        actual check, then returns the ORM instance on success.
+        Returns None if the key is wrong, revoked, or expired.
         """
-        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-        now = timezone.now()
+        django_connection.ensure_connection()
+        raw_conn = django_connection.connection
+        # Temporarily set Row factory so the shared validator gets
+        # dict-like access.  Restore the original afterwards.
+        original_factory = raw_conn.row_factory
+        raw_conn.row_factory = sqlite3.Row
         try:
-            api_key = cls.objects.get(
-                key_hash=key_hash,
-                is_active=True,
-            )
+            result = validate_api_key(raw_key, raw_conn, commit=False)
+        finally:
+            raw_conn.row_factory = original_factory
+
+        if not result.is_valid:
+            return None
+
+        try:
+            api_key = cls.objects.get(pk=result.key_id)
         except cls.DoesNotExist:
             return None
 
-        if api_key.expires_at is not None and api_key.expires_at <= now:
-            return None
-
-        cls.objects.filter(pk=api_key.pk).update(
-            last_used_at=now,
-            updated_at=now,
-        )
-        api_key.last_used_at = now
+        api_key.refresh_from_db()
         return api_key

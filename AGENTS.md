@@ -33,9 +33,13 @@ person-validator/
 │   │   ├── auth.py           # API key dependency (X-API-Key header)
 │   │   ├── db.py             # SQLite connection management (DATABASE_PATH env var)
 │   │   ├── schemas.py        # Shared Pydantic models
-│   │   └── routes/           # Versioned route modules (/v1/)
+│   │   └── routes/           # Versioned route modules
+│   │       ├── __init__.py   # Re-exports routers
+│   │       ├── health.py     # Public /health endpoint
+│   │       └── v1.py         # Authenticated /v1/ endpoints
 │   ├── core/                 # Shared domain logic (fields, utilities)
-│   │   └── fields.py         # ULIDField
+│   │   ├── fields.py         # ULIDField
+│   │   └── key_validation.py # Single-sourced API key validation (raw SQL)
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend
@@ -45,6 +49,9 @@ person-validator/
 │   ├── api/                  # FastAPI tests
 │   └── web/                  # Django tests
 ├── pyproject.toml            # Project metadata & tool config
+├── deploy/                   # Systemd unit files (version-controlled)
+│   ├── person-validator-web.service
+│   └── person-validator-api.service
 ├── AGENTS.md                 # This file — agent conventions
 ├── PLAYBOOKS.md              # Frequently-used development commands
 ├── env                       # Local secrets (git-ignored)
@@ -166,6 +173,11 @@ DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django runserver
 ### Service Management
 
 ```bash
+# Install/update systemd unit files from repo
+sudo cp deploy/person-validator-web.service /etc/systemd/system/
+sudo cp deploy/person-validator-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
 # Start/restart services
 sudo systemctl restart person-validator-web
 sudo systemctl restart person-validator-api

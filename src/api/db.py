@@ -6,6 +6,7 @@ the API service reads/writes the same database file.
 
 import os
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "db.sqlite3"
@@ -29,3 +30,19 @@ def get_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_db() -> Generator[sqlite3.Connection, None, None]:
+    """FastAPI dependency that yields a request-scoped SQLite connection.
+
+    Usage::
+
+        @router.get("/example")
+        def example(conn: sqlite3.Connection = Depends(get_db)):
+            ...
+    """
+    conn = get_connection()
+    try:
+        yield conn
+    finally:
+        conn.close()

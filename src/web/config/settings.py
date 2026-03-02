@@ -4,33 +4,14 @@ import os
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 # Build paths relative to project root (person-validator/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
-
-def _load_env_file():
-    """Load key=value pairs from the project env file into os.environ.
-
-    Uses ``os.environ.setdefault`` so explicit env vars always win.
-    Runs once at import time — acceptable trade-off because pytest-django
-    isolates Django settings via its ``settings`` fixture, and real env
-    vars (e.g. in CI) take precedence over file values.
-    """
-    env_path = BASE_DIR / "env"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                value = value.strip()
-                # Strip surrounding quotes (single or double)
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-                    value = value[1:-1]
-                os.environ.setdefault(key.strip(), value)
-
-
-_load_env_file()
+# Load the project env file. Existing env vars (e.g. from systemd
+# EnvironmentFile) take precedence — load_dotenv does not override.
+load_dotenv(BASE_DIR / "env")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
