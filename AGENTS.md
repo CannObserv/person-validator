@@ -28,9 +28,10 @@ No production code is written without a corresponding test first.
 person-validator/
 ├── src/
 │   ├── api/                  # FastAPI application
-│   │   ├── main.py           # App factory, module-level app instance
+│   │   ├── asgi.py           # ASGI entrypoint (uvicorn src.api.asgi:app)
+│   │   ├── main.py           # App factory (create_app)
 │   │   ├── auth.py           # API key dependency (X-API-Key header)
-│   │   ├── db.py             # SQLite connection management
+│   │   ├── db.py             # SQLite connection management (DATABASE_PATH env var)
 │   │   ├── schemas.py        # Shared Pydantic models
 │   │   └── routes/           # Versioned route modules (/v1/)
 │   ├── core/                 # Shared domain logic (fields, utilities)

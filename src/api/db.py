@@ -4,18 +4,20 @@ Direct SQLite access via the stdlib sqlite3 module. Django owns the schema;
 the API service reads/writes the same database file.
 """
 
+import os
 import sqlite3
 from pathlib import Path
+
+_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "db.sqlite3"
 
 
 def get_db_path() -> Path:
     """Return the path to the shared SQLite database.
 
-    Derives the path from the Django settings BASE_DIR convention:
-    the database lives at ``<project_root>/db.sqlite3``.
+    Reads from the ``DATABASE_PATH`` environment variable. Falls back to
+    ``<project_root>/db.sqlite3`` when the variable is not set.
     """
-    project_root = Path(__file__).resolve().parent.parent.parent
-    return project_root / "db.sqlite3"
+    return Path(os.environ.get("DATABASE_PATH", str(_DEFAULT_DB_PATH)))
 
 
 def get_connection() -> sqlite3.Connection:

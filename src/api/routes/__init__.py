@@ -1,6 +1,7 @@
 """API route modules.
 
 All versioned routes are mounted under /v1/ via the v1_router.
+Public routes (no auth) use the health_router.
 """
 
 from fastapi import APIRouter, Depends
@@ -8,10 +9,27 @@ from fastapi import APIRouter, Depends
 from src.api.auth import require_api_key
 from src.api.schemas import HealthResponse
 
-v1_router = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)])
+# --- Public routes (no auth) ------------------------------------------------
+
+health_router = APIRouter(tags=["health"])
 
 
-@v1_router.get("/health", response_model=HealthResponse)
+@health_router.get("/health", response_model=HealthResponse)
+def health() -> dict:
+    """Unauthenticated health check."""
+    return {"status": "ok"}
+
+
+# --- Versioned API routes (authenticated) -----------------------------------
+
+v1_router = APIRouter(
+    prefix="/v1",
+    tags=["v1"],
+    dependencies=[Depends(require_api_key)],
+)
+
+
+@v1_router.get("/health", response_model=HealthResponse, tags=["health"])
 def v1_health() -> dict:
     """Authenticated health check for the v1 API."""
     return {"status": "ok"}

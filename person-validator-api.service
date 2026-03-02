@@ -8,7 +8,8 @@ User=exedev
 Group=exedev
 WorkingDirectory=/home/exedev/person-validator
 EnvironmentFile=/home/exedev/person-validator/env
-ExecStart=/home/exedev/person-validator/.venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8001
+# Single worker: intentional — SQLite allows only one writer at a time.
+ExecStart=/home/exedev/person-validator/.venv/bin/uvicorn src.api.asgi:app --host 0.0.0.0 --port 8001 --workers 1
 Restart=on-failure
 RestartSec=5
 

@@ -1,18 +1,27 @@
 """Tests for SQLite database connection management."""
 
+import os
 import sqlite3
-from unittest.mock import patch
+
+from src.api.db import get_connection, get_db_path
 
 
 class TestGetDbPath:
     """Tests for database path resolution."""
 
-    def test_returns_path_from_settings(self):
-        """get_db_path() should return the configured database path."""
-        from src.api.db import get_db_path
-
+    def test_returns_default_path(self):
+        """get_db_path() should return a path ending in db.sqlite3."""
         path = get_db_path()
         assert str(path).endswith("db.sqlite3")
+
+    def test_respects_env_var(self, tmp_path):
+        """get_db_path() should honour the DATABASE_PATH env var."""
+        custom = tmp_path / "custom.db"
+        os.environ["DATABASE_PATH"] = str(custom)
+        try:
+            assert get_db_path() == custom
+        finally:
+            del os.environ["DATABASE_PATH"]
 
 
 class TestGetConnection:
@@ -20,28 +29,31 @@ class TestGetConnection:
 
     def test_returns_sqlite3_connection(self, tmp_db):
         """get_connection() should return a sqlite3.Connection."""
-        with patch("src.api.db.get_db_path", return_value=tmp_db):
-            from src.api.db import get_connection
-
+        os.environ["DATABASE_PATH"] = str(tmp_db)
+        try:
             conn = get_connection()
             assert isinstance(conn, sqlite3.Connection)
             conn.close()
+        finally:
+            del os.environ["DATABASE_PATH"]
 
     def test_connection_uses_wal_mode(self, tmp_db):
         """Connection should be in WAL journal mode."""
-        with patch("src.api.db.get_db_path", return_value=tmp_db):
-            from src.api.db import get_connection
-
+        os.environ["DATABASE_PATH"] = str(tmp_db)
+        try:
             conn = get_connection()
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode == "wal"
             conn.close()
+        finally:
+            del os.environ["DATABASE_PATH"]
 
     def test_connection_has_row_factory(self, tmp_db):
         """Connection should use sqlite3.Row factory for dict-like access."""
-        with patch("src.api.db.get_db_path", return_value=tmp_db):
-            from src.api.db import get_connection
-
+        os.environ["DATABASE_PATH"] = str(tmp_db)
+        try:
             conn = get_connection()
             assert conn.row_factory is sqlite3.Row
             conn.close()
+        finally:
+            del os.environ["DATABASE_PATH"]

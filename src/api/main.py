@@ -3,8 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import v1_router
-from src.api.schemas import HealthResponse
+from src.api.routes import health_router, v1_router
 
 
 def create_app() -> FastAPI:
@@ -19,22 +18,11 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Public health check (no auth required)
-    @app.get("/health", response_model=HealthResponse)
-    def health() -> dict:
-        """Unauthenticated health check."""
-        return {"status": "ok"}
-
-    # Versioned API routes (authenticated)
+    app.include_router(health_router)
     app.include_router(v1_router)
 
     return app
-
-
-# Module-level app instance for uvicorn (e.g. `uvicorn src.api.main:app`)
-app = create_app()
