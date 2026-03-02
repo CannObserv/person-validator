@@ -36,6 +36,8 @@ class APIKey(models.Model):
     class Meta:
         db_table = "keys_apikey"
         ordering = ["-created_at"]
+        verbose_name = "API key"
+        verbose_name_plural = "API keys"
 
     def __str__(self) -> str:
         return f"{self.key_prefix}… ({self.label})"
