@@ -39,7 +39,8 @@ person-validator/
 │   │       └── v1.py         # Authenticated /v1/ endpoints
 │   ├── core/                 # Shared domain logic (fields, utilities)
 │   │   ├── fields.py         # ULIDField
-│   │   └── key_validation.py # Single-sourced API key validation (raw SQL)
+│   │   ├── key_validation.py # Single-sourced API key validation (raw SQL)
+│   │   └── matching.py       # Name normalization + search (raw SQL)
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend
@@ -72,6 +73,22 @@ person-validator/
 |---|---|---|---|
 | Web/Admin | Django | 8000 | `person-validator-web` |
 | API | FastAPI | 8001 | `person-validator-api` |
+
+### API Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/health` | None | Public health check |
+| GET | `/v1/health` | API key | Authenticated health check |
+| POST | `/v1/find` | API key | Find persons by name query |
+
+#### POST /v1/find
+
+Accepts `{"name": "..."}`. Normalizes input (lowercase, strip non-letters,
+collapse whitespace), searches `persons_personname` for exact `full_name`
+matches and `given_name`+`surname` combinations. Returns 200 with scored
+results or 404 with empty results. Certainty scoring: primary exact = 1.0,
+other exact = 0.9, primary partial = 0.8, other partial = 0.7.
 
 ## Secrets
 

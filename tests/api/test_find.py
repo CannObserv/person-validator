@@ -1,48 +1,6 @@
 """Tests for POST /v1/find endpoint."""
 
-import sqlite3
-
 import pytest
-from ulid import ULID
-
-
-def _insert_person(db_path, person_id=None, name="John Doe", given_name="John", surname="Doe"):
-    """Insert a Person row and return the person_id."""
-    person_id = person_id or str(ULID())
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "INSERT INTO persons_person (id, name, given_name, surname, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-        (person_id, name, given_name, surname),
-    )
-    conn.commit()
-    conn.close()
-    return person_id
-
-
-def _insert_person_name(
-    db_path,
-    person_id,
-    full_name,
-    name_type="primary",
-    given_name=None,
-    surname=None,
-    is_primary=False,
-    source="test",
-):
-    """Insert a PersonName row."""
-    name_id = str(ULID())
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "INSERT INTO persons_personname"
-        " (id, person_id, name_type, full_name, given_name, surname,"
-        "  is_primary, source, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        (name_id, person_id, name_type, full_name, given_name, surname, int(is_primary), source),
-    )
-    conn.commit()
-    conn.close()
-    return name_id
 
 
 class TestFindEndpointValidation:
@@ -110,6 +68,7 @@ class TestFindNoMatches:
             json={"name": "  Bob  Smith  Jr. "},
             headers={"X-API-Key": valid_api_key.raw_key},
         )
+        assert resp.status_code == 404
         body = resp.json()
         assert body["query"]["normalized"] == "bob smith jr"
 
@@ -118,11 +77,12 @@ class TestFindExactMatch:
     """Tests for exact-match scenarios."""
 
     @pytest.mark.anyio
-    async def test_exact_primary_match_returns_200(self, client, valid_api_key, tmp_db):
+    async def test_exact_primary_match_returns_200(
+        self, client, valid_api_key, tmp_db, insert_person, insert_person_name
+    ):
         """Exact match on primary full_name should return 200 with certainty 1.0."""
-        pid = _insert_person(tmp_db, name="Robert Smith", given_name="Robert", surname="Smith")
-        _insert_person_name(
-            tmp_db,
+        pid = insert_person(name="Robert Smith", given_name="Robert", surname="Smith")
+        insert_person_name(
             pid,
             "Robert Smith",
             name_type="primary",
@@ -145,11 +105,12 @@ class TestFindExactMatch:
         assert top["matched_name"]["name_type"] == "primary"
 
     @pytest.mark.anyio
-    async def test_case_insensitive_match(self, client, valid_api_key, tmp_db):
+    async def test_case_insensitive_match(
+        self, client, valid_api_key, tmp_db, insert_person, insert_person_name
+    ):
         """Matching should be case-insensitive."""
-        pid = _insert_person(tmp_db, name="Robert Smith", given_name="Robert", surname="Smith")
-        _insert_person_name(
-            tmp_db,
+        pid = insert_person(name="Robert Smith", given_name="Robert", surname="Smith")
+        insert_person_name(
             pid,
             "Robert Smith",
             name_type="primary",
@@ -170,11 +131,12 @@ class TestFindAliasMatch:
     """Tests for non-primary name type matches."""
 
     @pytest.mark.anyio
-    async def test_alias_match_certainty_below_1(self, client, valid_api_key, tmp_db):
+    async def test_alias_match_certainty_below_1(
+        self, client, valid_api_key, tmp_db, insert_person, insert_person_name
+    ):
         """Match on alias should return certainty < 1.0."""
-        pid = _insert_person(tmp_db, name="Robert Smith", given_name="Robert", surname="Smith")
-        _insert_person_name(
-            tmp_db,
+        pid = insert_person(name="Robert Smith", given_name="Robert", surname="Smith")
+        insert_person_name(
             pid,
             "Robert Smith",
             name_type="primary",
@@ -182,8 +144,7 @@ class TestFindAliasMatch:
             surname="Smith",
             is_primary=True,
         )
-        _insert_person_name(
-            tmp_db,
+        insert_person_name(
             pid,
             "Bobby Smith",
             name_type="nickname",
@@ -208,16 +169,16 @@ class TestFindPartialMatch:
     """Tests for partial name matching (given_name + surname)."""
 
     @pytest.mark.anyio
-    async def test_given_plus_surname_match(self, client, valid_api_key, tmp_db):
+    async def test_given_plus_surname_match(
+        self, client, valid_api_key, tmp_db, insert_person, insert_person_name
+    ):
         """Query matching given_name + surname should return a result."""
-        pid = _insert_person(
-            tmp_db,
+        pid = insert_person(
             name="Robert James Smith Jr.",
             given_name="Robert",
             surname="Smith",
         )
-        _insert_person_name(
-            tmp_db,
+        insert_person_name(
             pid,
             "Robert James Smith Jr.",
             name_type="primary",
@@ -257,11 +218,16 @@ class TestFindResponseSchema:
         assert "variants" in body["query"]
 
     @pytest.mark.anyio
-    async def test_results_sorted_by_certainty_descending(self, client, valid_api_key, tmp_db):
+    async def test_results_sorted_by_certainty_descending(
+        self, client, valid_api_key, tmp_db, insert_person, insert_person_name
+    ):
         """Results should be sorted by certainty, highest first."""
-        pid1 = _insert_person(tmp_db, name="Alice Johnson", given_name="Alice", surname="Johnson")
-        _insert_person_name(
-            tmp_db,
+        pid1 = insert_person(
+            name="Alice Johnson",
+            given_name="Alice",
+            surname="Johnson",
+        )
+        insert_person_name(
             pid1,
             "Alice Johnson",
             name_type="primary",
@@ -270,14 +236,12 @@ class TestFindResponseSchema:
             is_primary=True,
         )
 
-        pid2 = _insert_person(
-            tmp_db,
+        pid2 = insert_person(
             name="Alice Marie Johnson",
             given_name="Alice",
             surname="Johnson",
         )
-        _insert_person_name(
-            tmp_db,
+        insert_person_name(
             pid2,
             "Alice Marie Johnson",
             name_type="primary",
@@ -285,8 +249,7 @@ class TestFindResponseSchema:
             surname="Johnson",
             is_primary=True,
         )
-        _insert_person_name(
-            tmp_db,
+        insert_person_name(
             pid2,
             "Alice Johnson",
             name_type="nickname",

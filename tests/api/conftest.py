@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from ulid import ULID
 
 from src.api.main import create_app
 
@@ -100,3 +101,71 @@ async def client(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac
+
+
+@pytest.fixture
+def insert_person(tmp_db):
+    """Return a callable that inserts a Person row.
+
+    Usage::
+
+        pid = insert_person(name="Alice", given_name="Alice", surname="Smith")
+    """
+    conn = sqlite3.connect(str(tmp_db))
+
+    def _insert(person_id=None, name="John Doe", given_name="John", surname="Doe"):
+        pid = person_id or str(ULID())
+        conn.execute(
+            "INSERT INTO persons_person"
+            " (id, name, given_name, surname, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (pid, name, given_name, surname),
+        )
+        conn.commit()
+        return pid
+
+    yield _insert
+    conn.close()
+
+
+@pytest.fixture
+def insert_person_name(tmp_db):
+    """Return a callable that inserts a PersonName row.
+
+    Usage::
+
+        insert_person_name(pid, "Alice Smith", name_type="primary", is_primary=True)
+    """
+    conn = sqlite3.connect(str(tmp_db))
+
+    def _insert(
+        person_id,
+        full_name,
+        name_type="primary",
+        given_name=None,
+        surname=None,
+        is_primary=False,
+        source="test",
+    ):
+        name_id = str(ULID())
+        conn.execute(
+            "INSERT INTO persons_personname"
+            " (id, person_id, name_type, full_name, given_name, surname,"
+            "  is_primary, source, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (
+                name_id,
+                person_id,
+                name_type,
+                full_name,
+                given_name,
+                surname,
+                int(is_primary),
+                source,
+            ),
+        )
+        conn.commit()
+        return name_id
+
+    yield _insert
+    conn.close()
