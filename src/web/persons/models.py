@@ -105,3 +105,26 @@ class PersonName(models.Model):
             surname=self.surname,
             updated_at=timezone.now(),
         )
+
+
+class PersonAttribute(models.Model):
+    """Enrichment data about a person (append-only EAV)."""
+
+    id = ULIDField(primary_key=True)
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.CASCADE,
+        related_name="attributes",
+    )
+    source = models.CharField(max_length=200)
+    key = models.CharField(max_length=200)
+    value = models.TextField()
+    confidence = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "persons_personattribute"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.key}: {self.value}"
