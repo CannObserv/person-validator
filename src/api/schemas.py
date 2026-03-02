@@ -52,3 +52,45 @@ class FindResponse(BaseModel):
     query: QueryInfo
     results: list[FindResult]
     message: str | None = None
+
+
+class PersonNameSchema(BaseModel):
+    """Schema for a person's name variant."""
+
+    id: str
+    name_type: str
+    full_name: str
+    given_name: str | None = None
+    middle_name: str | None = None
+    surname: str | None = None
+    prefix: str | None = None
+    suffix: str | None = None
+    is_primary: bool
+    source: str
+    effective_date: str | None = None
+    end_date: str | None = None
+
+
+class PersonAttributeSchema(BaseModel):
+    """Schema for a person enrichment attribute."""
+
+    id: str
+    source: str
+    key: str
+    value: str
+    confidence: float
+    created_at: str
+
+
+class PersonReadResponse(BaseModel):
+    """Response body for GET /v1/read/{id}."""
+
+    id: str
+    name: str
+    given_name: str | None = None
+    middle_name: str | None = None
+    surname: str | None = None
+    created_at: str
+    updated_at: str
+    names: list[PersonNameSchema]
+    attributes: list[PersonAttributeSchema]

@@ -65,6 +65,7 @@ person-validator/
 |---|---|---|
 | `persons_person` | persons | Identity anchor, denormalized primary name |
 | `persons_personname` | persons | All name variants for a person |
+| `persons_personattribute` | persons | Enrichment data (append-only EAV) |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
 
 ### Services
@@ -81,6 +82,14 @@ person-validator/
 | GET | `/health` | None | Public health check |
 | GET | `/v1/health` | API key | Authenticated health check |
 | POST | `/v1/find` | API key | Find persons by name query |
+| GET | `/v1/read/{id}` | API key | Full person record by ID |
+
+#### GET /v1/read/{id}
+
+Returns a full person record including all name variants and enrichment
+attributes. Returns 200 with `PersonReadResponse` (id, name, given_name,
+middle_name, surname, created_at, updated_at, names[], attributes[]) or
+404 with `{"message": "Person not found"}`.
 
 #### POST /v1/find
 
