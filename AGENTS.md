@@ -27,6 +27,12 @@ No production code is written without a corresponding test first.
 ```
 person-validator/
 ├── src/
+│   ├── api/                  # FastAPI application
+│   │   ├── main.py           # App factory, module-level app instance
+│   │   ├── auth.py           # API key dependency (X-API-Key header)
+│   │   ├── db.py             # SQLite connection management
+│   │   ├── schemas.py        # Shared Pydantic models
+│   │   └── routes/           # Versioned route modules (/v1/)
 │   ├── core/                 # Shared domain logic (fields, utilities)
 │   │   └── fields.py         # ULIDField
 │   └── web/                  # Django application
@@ -35,6 +41,8 @@ person-validator/
 │       ├── persons/          # Person + PersonName models & admin
 │       └── keys/             # API key model & admin management
 ├── tests/                    # Test suite (mirrors src/ structure)
+│   ├── api/                  # FastAPI tests
+│   └── web/                  # Django tests
 ├── pyproject.toml            # Project metadata & tool config
 ├── AGENTS.md                 # This file — agent conventions
 ├── PLAYBOOKS.md              # Frequently-used development commands
@@ -49,6 +57,13 @@ person-validator/
 | `persons_person` | persons | Identity anchor, denormalized primary name |
 | `persons_personname` | persons | All name variants for a person |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
+
+### Services
+
+| Service | Framework | Port | Systemd Unit |
+|---|---|---|---|
+| Web/Admin | Django | 8000 | `person-validator-web` |
+| API | FastAPI | 8001 | `person-validator-api` |
 
 ## Secrets
 
@@ -121,6 +136,16 @@ uv sync
 export $(grep GITHUB_TOKEN env | xargs)
 ```
 
+### FastAPI Development
+
+```bash
+# Run the FastAPI dev server
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+
+# Run only FastAPI tests
+uv run pytest tests/api/
+```
+
 ### Django Management
 
 ```bash
@@ -140,14 +165,17 @@ DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django runserver
 ### Service Management
 
 ```bash
-# Start/restart the Django web service
+# Start/restart services
 sudo systemctl restart person-validator-web
+sudo systemctl restart person-validator-api
 
 # Check service status
 sudo systemctl status person-validator-web
+sudo systemctl status person-validator-api
 
 # View logs
 journalctl -u person-validator-web -f
+journalctl -u person-validator-api -f
 ```
 
 ## Playbooks
