@@ -2,7 +2,6 @@
 
 import hashlib
 import secrets
-import sqlite3
 
 from django.conf import settings
 from django.db import connection as django_connection
@@ -80,23 +79,12 @@ class APIKey(models.Model):
         Returns None if the key is wrong, revoked, or expired.
         """
         django_connection.ensure_connection()
-        raw_conn = django_connection.connection
-        # Temporarily set Row factory so the shared validator gets
-        # dict-like access.  Restore the original afterwards.
-        original_factory = raw_conn.row_factory
-        raw_conn.row_factory = sqlite3.Row
-        try:
-            result = validate_api_key(raw_key, raw_conn, commit=False)
-        finally:
-            raw_conn.row_factory = original_factory
+        result = validate_api_key(raw_key, django_connection.connection, commit=False)
 
         if not result.is_valid:
             return None
 
         try:
-            api_key = cls.objects.get(pk=result.key_id)
+            return cls.objects.get(pk=result.key_id)
         except cls.DoesNotExist:
             return None
-
-        api_key.refresh_from_db()
-        return api_key

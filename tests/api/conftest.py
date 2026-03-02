@@ -1,18 +1,15 @@
 """Shared fixtures for FastAPI tests.
 
-The ``tmp_db`` fixture creates a temporary SQLite database by running
-Django migrations via subprocess, guaranteeing schema parity with the
-real database without triggering pytest-django's DB access guard.
+The ``tmp_db`` fixture uses the session-cached migrated database
+template (see ``tests/conftest.py``), guaranteeing schema parity
+with the real database at near-zero per-test cost.
 """
 
 import hashlib
 import os
 import sqlite3
-import subprocess
-import sys
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -21,57 +18,11 @@ from src.api.main import create_app
 
 InsertedKey = namedtuple("InsertedKey", ["raw_key", "key_id"])
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-
-def _run_django_migrations(db_path):
-    """Run Django migrations in a subprocess against the given database."""
-    env = {**os.environ, "DATABASE_PATH": str(db_path)}
-    # Override the Django database NAME via an env var that settings.py
-    # doesn't read directly — instead, we set it in a tiny script.
-    script = (
-        "import django, os; "
-        "os.environ['DJANGO_SETTINGS_MODULE'] = 'src.web.config.settings'; "
-        "django.setup(); "
-        "from django.conf import settings; "
-        f"settings.DATABASES['default']['NAME'] = '{db_path}'; "
-        "from django.core.management import call_command; "
-        "call_command('migrate', '--run-syncdb', verbosity=0)"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=str(_PROJECT_ROOT),
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Django migrations failed:\n{result.stderr}")
-
 
 @pytest.fixture
-def tmp_db(tmp_path):
-    """Create a temporary SQLite database via Django migrations.
-
-    Runs migrations in a subprocess to avoid pytest-django's DB access
-    guard while guaranteeing schema parity with the real database.
-    """
-    db_path = tmp_path / "db.sqlite3"
-    _run_django_migrations(db_path)
-
-    # Insert a dummy auth_user row so foreign keys to user_id resolve.
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "INSERT OR IGNORE INTO auth_user"
-        " (id, username, password, is_superuser, is_staff, is_active,"
-        "  first_name, last_name, email, date_joined)"
-        " VALUES (1, 'testuser', '', 0, 0, 1, '', '', 'test@example.com',"
-        "  datetime('now'))"
-    )
-    conn.commit()
-    conn.close()
-
-    return db_path
+def tmp_db(migrated_db):
+    """Alias for the shared migrated_db fixture."""
+    return migrated_db
 
 
 @pytest.fixture

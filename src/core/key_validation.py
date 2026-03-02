@@ -33,7 +33,8 @@ def validate_api_key(
     raw_key:
         The plaintext API key sent by the client.
     conn:
-        An open ``sqlite3.Connection`` with ``row_factory = sqlite3.Row``.
+        An open ``sqlite3.Connection``.  No specific ``row_factory`` is
+        required — the function uses positional column indexing.
     commit:
         Whether to call ``conn.commit()`` after updating ``last_used_at``.
         Set to ``False`` when the caller manages transactions (e.g. Django
@@ -55,11 +56,13 @@ def validate_api_key(
     if row is None:
         return KeyValidationResult(key_id="", is_valid=False, rejection_reason="invalid")
 
-    if not row["is_active"]:
-        return KeyValidationResult(key_id=row["id"], is_valid=False, rejection_reason="revoked")
+    # Positional: SELECT id, is_active, expires_at
+    row_id, is_active, raw_expires = row[0], row[1], row[2]
 
-    if row["expires_at"] is not None:
-        raw_expires = row["expires_at"]
+    if not is_active:
+        return KeyValidationResult(key_id=row_id, is_valid=False, rejection_reason="revoked")
+
+    if raw_expires is not None:
         if isinstance(raw_expires, str):
             expires = datetime.fromisoformat(raw_expires)
         else:
@@ -67,14 +70,14 @@ def validate_api_key(
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=UTC)
         if expires <= datetime.now(UTC):
-            return KeyValidationResult(key_id=row["id"], is_valid=False, rejection_reason="expired")
+            return KeyValidationResult(key_id=row_id, is_valid=False, rejection_reason="expired")
 
     now = datetime.now(UTC).isoformat()
     conn.execute(
         "UPDATE keys_apikey SET last_used_at = ?, updated_at = ? WHERE id = ?",
-        (now, now, row["id"]),
+        (now, now, row_id),
     )
     if commit:
         conn.commit()
 
-    return KeyValidationResult(key_id=row["id"], is_valid=True)
+    return KeyValidationResult(key_id=row_id, is_valid=True)

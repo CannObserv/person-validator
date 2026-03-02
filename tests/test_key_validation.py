@@ -10,29 +10,10 @@ from src.core.key_validation import KeyValidationResult, validate_api_key
 
 
 @pytest.fixture
-def conn(tmp_path):
-    """Create a temporary SQLite database with the keys_apikey table."""
-    db_path = tmp_path / "db.sqlite3"
-    c = sqlite3.connect(str(db_path))
+def conn(migrated_db):
+    """Open a SQLite connection to the per-test migrated database."""
+    c = sqlite3.connect(str(migrated_db))
     c.execute("PRAGMA journal_mode=WAL")
-    c.row_factory = sqlite3.Row
-    c.execute(
-        """
-        CREATE TABLE keys_apikey (
-            id TEXT PRIMARY KEY,
-            key_hash TEXT NOT NULL,
-            key_prefix TEXT NOT NULL,
-            user_id INTEGER NOT NULL,
-            label TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            expires_at TEXT,
-            last_used_at TEXT
-        )
-        """
-    )
-    c.commit()
     yield c
     c.close()
 
@@ -98,8 +79,8 @@ class TestValidateApiKey:
         row = conn.execute(
             "SELECT last_used_at FROM keys_apikey WHERE id = ?", ("KEY005",)
         ).fetchone()
-        assert row["last_used_at"] is not None
-        last_used = datetime.fromisoformat(row["last_used_at"])
+        assert row[0] is not None
+        last_used = datetime.fromisoformat(row[0])
         assert last_used >= before
 
     def test_invalid_key_does_not_update_last_used(self, conn):
@@ -109,7 +90,7 @@ class TestValidateApiKey:
         row = conn.execute(
             "SELECT last_used_at FROM keys_apikey WHERE id = ?", ("KEY006",)
         ).fetchone()
-        assert row["last_used_at"] is None
+        assert row[0] is None
 
     def test_naive_expires_at_handled(self, conn):
         """A naive (no tzinfo) expires_at in the past is treated as expired."""

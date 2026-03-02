@@ -1,3 +1,5 @@
+# Assumes exe.dev VM layout: project at /home/exedev/person-validator.
+# Update paths if deploying elsewhere.
 [Unit]
 Description=Person Validator API (FastAPI)
 After=network.target
