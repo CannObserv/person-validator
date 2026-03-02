@@ -49,6 +49,7 @@ class TestReadSuccess:
         pid = insert_person(
             name="Robert James Smith Jr.",
             given_name="Robert",
+            middle_name="James",
             surname="Smith",
         )
         insert_person_name(
@@ -69,6 +70,7 @@ class TestReadSuccess:
         assert body["id"] == pid
         assert body["name"] == "Robert James Smith Jr."
         assert body["given_name"] == "Robert"
+        assert body["middle_name"] == "James"
         assert body["surname"] == "Smith"
         assert "created_at" in body
         assert "updated_at" in body

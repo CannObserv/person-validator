@@ -3,11 +3,12 @@
 from datetime import timedelta
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
 from django.utils import timezone
 
 from src.core.fields import ULIDField
-from src.web.persons.models import NAME_TYPE_CHOICES, Person, PersonName
+from src.web.persons.models import NAME_TYPE_CHOICES, Person, PersonAttribute, PersonName
 
 
 @pytest.mark.django_db
@@ -397,3 +398,92 @@ class TestUniquePrimaryConstraint:
             source="manual",
         )
         assert PersonName.objects.filter(person=person, is_primary=False).count() == 2
+
+
+@pytest.mark.django_db
+class TestPersonAttribute:
+    """Tests for PersonAttribute model."""
+
+    def test_create_attribute(self):
+        """Can create a PersonAttribute with valid data."""
+        person = Person.objects.create(name="Jane Doe")
+        attr = PersonAttribute.objects.create(
+            person=person,
+            source="test_provider",
+            key="employer",
+            value="Acme Corp",
+            confidence=0.85,
+        )
+        assert attr.pk is not None
+        assert attr.source == "test_provider"
+        assert attr.key == "employer"
+        assert attr.value == "Acme Corp"
+        assert attr.confidence == 0.85
+
+    def test_str_representation(self):
+        """String representation is 'key: value'."""
+        person = Person.objects.create(name="Jane Doe")
+        attr = PersonAttribute.objects.create(
+            person=person,
+            source="test",
+            key="employer",
+            value="Acme",
+            confidence=0.9,
+        )
+        assert str(attr) == "employer: Acme"
+
+    def test_cascade_delete(self):
+        """Deleting person cascades to attributes."""
+        person = Person.objects.create(name="Jane Doe")
+        PersonAttribute.objects.create(
+            person=person,
+            source="test",
+            key="employer",
+            value="Acme",
+            confidence=0.9,
+        )
+        person.delete()
+        assert PersonAttribute.objects.count() == 0
+
+    def test_confidence_rejects_above_one(self):
+        """Confidence > 1.0 should fail validation."""
+        person = Person.objects.create(name="Jane Doe")
+        attr = PersonAttribute(
+            person=person,
+            source="test",
+            key="score",
+            value="high",
+            confidence=1.5,
+        )
+        with pytest.raises(ValidationError):
+            attr.full_clean()
+
+    def test_confidence_rejects_below_zero(self):
+        """Confidence < 0.0 should fail validation."""
+        person = Person.objects.create(name="Jane Doe")
+        attr = PersonAttribute(
+            person=person,
+            source="test",
+            key="score",
+            value="low",
+            confidence=-0.1,
+        )
+        with pytest.raises(ValidationError):
+            attr.full_clean()
+
+    def test_confidence_accepts_boundary_values(self):
+        """Confidence 0.0 and 1.0 should be valid."""
+        person = Person.objects.create(name="Jane Doe")
+        for val in (0.0, 1.0):
+            attr = PersonAttribute(
+                person=person,
+                source="test",
+                key="score",
+                value="ok",
+                confidence=val,
+            )
+            attr.full_clean()  # Should not raise
+
+    def test_db_table_name(self):
+        """Table name should be persons_personattribute."""
+        assert PersonAttribute._meta.db_table == "persons_personattribute"

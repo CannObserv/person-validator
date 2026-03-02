@@ -1,6 +1,7 @@
 """Versioned v1 API routes (authenticated)."""
 
 import sqlite3
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -73,7 +74,7 @@ def find(
 
 
 @v1_router.get("/read/{person_id}", response_model=PersonReadResponse)
-def read(
+def get_person(
     person_id: str,
     conn: sqlite3.Connection = Depends(get_db),
 ) -> JSONResponse:
@@ -85,46 +86,8 @@ def read(
             status_code=404,
         )
 
-    names = [
-        PersonNameSchema(
-            id=n.id,
-            name_type=n.name_type,
-            full_name=n.full_name,
-            given_name=n.given_name,
-            middle_name=n.middle_name,
-            surname=n.surname,
-            prefix=n.prefix,
-            suffix=n.suffix,
-            is_primary=n.is_primary,
-            source=n.source,
-            effective_date=n.effective_date,
-            end_date=n.end_date,
-        )
-        for n in detail.names
-    ]
-
-    attributes = [
-        PersonAttributeSchema(
-            id=a.id,
-            source=a.source,
-            key=a.key,
-            value=a.value,
-            confidence=a.confidence,
-            created_at=a.created_at,
-        )
-        for a in detail.attributes
-    ]
-
-    response = PersonReadResponse(
-        id=detail.person.id,
-        name=detail.person.name,
-        given_name=detail.person.given_name,
-        middle_name=detail.person.middle_name,
-        surname=detail.person.surname,
-        created_at=detail.person.created_at,
-        updated_at=detail.person.updated_at,
-        names=names,
-        attributes=attributes,
-    )
+    names = [PersonNameSchema(**asdict(n)) for n in detail.names]
+    attributes = [PersonAttributeSchema(**asdict(a)) for a in detail.attributes]
+    response = PersonReadResponse(**asdict(detail.person), names=names, attributes=attributes)
 
     return JSONResponse(content=response.model_dump(), status_code=200)

@@ -1,5 +1,6 @@
 """Person and PersonName models."""
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -119,7 +120,9 @@ class PersonAttribute(models.Model):
     source = models.CharField(max_length=200)
     key = models.CharField(max_length=200)
     value = models.TextField()
-    confidence = models.FloatField()
+    confidence = models.FloatField(
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

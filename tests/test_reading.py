@@ -2,27 +2,31 @@
 
 import sqlite3
 
+import pytest
 from ulid import ULID
 
 from src.core.reading import read_person
 
 
+@pytest.fixture
+def conn(migrated_db):
+    """Yield a request-scoped SQLite connection with Row factory."""
+    connection = sqlite3.connect(str(migrated_db))
+    connection.row_factory = sqlite3.Row
+    yield connection
+    connection.close()
+
+
 class TestReadPerson:
     """Unit tests for the read_person query function."""
 
-    def test_returns_none_for_missing_id(self, migrated_db):
+    def test_returns_none_for_missing_id(self, conn):
         """A nonexistent ID should return None."""
-        conn = sqlite3.connect(str(migrated_db))
-        conn.row_factory = sqlite3.Row
         result = read_person(conn, str(ULID()))
-        conn.close()
         assert result is None
 
-    def test_returns_person_detail(self, migrated_db):
+    def test_returns_person_detail(self, conn):
         """An existing person should return a PersonDetail with names."""
-        conn = sqlite3.connect(str(migrated_db))
-        conn.row_factory = sqlite3.Row
-
         pid = str(ULID())
         conn.execute(
             "INSERT INTO persons_person"
@@ -41,7 +45,6 @@ class TestReadPerson:
         conn.commit()
 
         detail = read_person(conn, pid)
-        conn.close()
 
         assert detail is not None
         assert detail.person.id == pid
@@ -51,11 +54,8 @@ class TestReadPerson:
         assert detail.names[0].is_primary is True
         assert detail.attributes == []
 
-    def test_returns_attributes(self, migrated_db):
+    def test_returns_attributes(self, conn):
         """Attributes should be included in the result."""
-        conn = sqlite3.connect(str(migrated_db))
-        conn.row_factory = sqlite3.Row
-
         pid = str(ULID())
         conn.execute(
             "INSERT INTO persons_person"
@@ -81,7 +81,6 @@ class TestReadPerson:
         conn.commit()
 
         detail = read_person(conn, pid)
-        conn.close()
 
         assert len(detail.attributes) == 1
         assert detail.attributes[0].key == "employer"

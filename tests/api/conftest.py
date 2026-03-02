@@ -113,13 +113,20 @@ def insert_person(tmp_db):
     """
     conn = sqlite3.connect(str(tmp_db))
 
-    def _insert(person_id=None, name="John Doe", given_name="John", surname="Doe"):
+    def _insert(
+        person_id=None,
+        name="John Doe",
+        given_name="John",
+        middle_name=None,
+        surname="Doe",
+    ):
         pid = person_id or str(ULID())
         conn.execute(
             "INSERT INTO persons_person"
-            " (id, name, given_name, surname, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-            (pid, name, given_name, surname),
+            " (id, name, given_name, middle_name, surname,"
+            "  created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (pid, name, given_name, middle_name, surname),
         )
         conn.commit()
         return pid
