@@ -168,3 +168,4 @@ If a playbook name exists in both files, the project-level definition takes prec
   import inside functions, methods, or test bodies.
 - Write docstrings for public modules, classes, and functions.
 - Test file names mirror source file names: `src/foo.py` → `tests/test_foo.py`.
+  Cross-cutting convention tests (e.g. `test_settings.py`) are the exception.
