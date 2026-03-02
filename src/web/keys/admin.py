@@ -1,7 +1,5 @@
 """Admin configuration for APIKey model."""
 
-import hashlib
-import secrets
 from datetime import timedelta
 
 from django.contrib import admin, messages
@@ -18,13 +16,18 @@ class APIKeyAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "user")
     search_fields = ("label", "key_prefix")
     readonly_fields = ("id", "key_hash", "key_prefix", "created_at", "updated_at", "last_used_at")
-    actions = ["generate_api_key"]
+    actions = None
 
     def get_readonly_fields(self, request, obj=None):
-        """Make expires_at read-only on the change form (require key rotation)."""
+        """Make expires_at and user read-only on the change form.
+
+        Expiration and ownership are set at key creation time.
+        Changing expiration requires key rotation; user reassignment
+        is not allowed.
+        """
         readonly = list(super().get_readonly_fields(request, obj))
         if obj is not None:
-            readonly.append("expires_at")
+            readonly.extend(["expires_at", "user"])
         return tuple(readonly)
 
     def get_fieldsets(self, request, obj=None):
@@ -64,32 +67,13 @@ class APIKeyAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         """On create, generate a key and display the raw value once."""
         if not change:
-            raw_key = secrets.token_urlsafe(32)
-            obj.key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-            obj.key_prefix = raw_key[:8]
+            raw_key, key_hash, key_prefix = APIKey.prepare_raw_key()
+            obj.key_hash = key_hash
+            obj.key_prefix = key_prefix
             obj.save()
             messages.warning(
                 request,
-                f"Your new API key: {raw_key} — copy it now, it will not be shown again.",
+                f"Your new API key: {raw_key} \u2014 copy it now, it will not be shown again.",
             )
         else:
             obj.save()
-
-    @admin.action(description="Generate a new API key for selected users' keys")
-    def generate_api_key(self, request, queryset):
-        """Generate new API keys — operates on selected keys' users.
-
-        This is primarily meant as a convenience action. For each selected
-        row, it generates a new key for that row's user.
-        """
-        for api_key in queryset:
-            raw_key, new_key = APIKey.generate(
-                user=api_key.user,
-                label=f"Generated from {api_key.label}",
-            )
-            messages.success(
-                request,
-                f"New key for {api_key.user}: {raw_key} "
-                f"(prefix: {new_key.key_prefix}). "
-                f"Copy this now — it will not be shown again.",
-            )

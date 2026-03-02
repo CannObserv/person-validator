@@ -1,5 +1,6 @@
 """Tests for APIKey admin configuration."""
 
+import hashlib
 from datetime import timedelta
 
 import pytest
@@ -46,12 +47,12 @@ class TestAPIKeyVerboseNames:
     """Tests that 'API' is always ALL CAPS in admin labels."""
 
     def test_verbose_name_is_api_key(self):
-        """Model verbose_name should be 'API key' (ALL CAPS API)."""
-        assert APIKey._meta.verbose_name == "API key"
+        """Model verbose_name should be 'API Key' (ALL CAPS API)."""
+        assert APIKey._meta.verbose_name == "API Key"
 
     def test_verbose_name_plural_is_api_keys(self):
-        """Model verbose_name_plural should be 'API keys' (ALL CAPS API)."""
-        assert APIKey._meta.verbose_name_plural == "API keys"
+        """Model verbose_name_plural should be 'API Keys' (ALL CAPS API)."""
+        assert APIKey._meta.verbose_name_plural == "API Keys"
 
 
 class TestAPIKeyAdminConfig:
@@ -91,6 +92,12 @@ class TestAPIKeyAdminConfig:
         assert "created_at" in admin.readonly_fields
         assert "last_used_at" in admin.readonly_fields
 
+    def test_no_custom_actions(self):
+        """No custom admin actions beyond Django's built-in delete."""
+        admin = APIKeyAdmin(APIKey, AdminSite())
+        # actions=None means only built-in delete; explicit empty list also works
+        assert admin.actions is None or admin.actions == []
+
 
 @pytest.mark.django_db
 class TestAPIKeyAdminAddForm:
@@ -123,7 +130,6 @@ class TestAPIKeyAdminAddForm:
         """Saving a new APIKey via admin generates the key and shows it in messages."""
         admin = APIKeyAdmin(APIKey, AdminSite())
         request = _make_request("POST", "/admin/keys/apikey/add/", staff_user)
-        # Create a minimal form-like object — save_model receives the unsaved obj
         form_class = admin.get_form(request, obj=None)
         expires = timezone.now() + timedelta(days=90)
         form = form_class(
@@ -153,8 +159,6 @@ class TestAPIKeyAdminAddForm:
 
     def test_save_model_raw_key_hashes_to_stored_hash(self, staff_user):
         """The raw key shown in the message should hash to the stored key_hash."""
-        import hashlib
-
         admin = APIKeyAdmin(APIKey, AdminSite())
         request = _make_request("POST", "/admin/keys/apikey/add/", staff_user)
         form_class = admin.get_form(request, obj=None)
@@ -174,9 +178,7 @@ class TestAPIKeyAdminAddForm:
 
         # Extract the raw key from the message
         msg = list(request._messages)[0].message
-        # The message format includes the raw key — extract it
-        # We can verify by checking that hashing yields the stored hash
-        # The raw key is between specific markers in the message
+        # Verify that hashing a word from the message yields the stored hash
         assert obj.key_hash in [hashlib.sha256(word.encode()).hexdigest() for word in msg.split()]
 
 
@@ -203,14 +205,21 @@ class TestAPIKeyAdminChangeForm:
         readonly = admin.get_readonly_fields(request, obj=None)
         assert "expires_at" not in readonly
 
-
-@pytest.mark.django_db
-class TestAPIKeyAdminCreateAction:
-    """Tests for the custom create key admin action."""
-
-    def test_generate_api_key_action_exists(self, staff_user):
-        """The admin should have a generate_api_key action."""
+    def test_user_readonly_on_change(self, staff_user):
+        """user should be read-only when editing an existing key."""
         admin = APIKeyAdmin(APIKey, AdminSite())
-        request = _make_request("GET", "/admin/keys/apikey/", staff_user)
-        actions = admin.get_actions(request)
-        assert "generate_api_key" in actions
+        _, api_key = APIKey.generate(user=staff_user, label="Locked User")
+        request = _make_request(
+            "GET",
+            f"/admin/keys/apikey/{api_key.pk}/change/",
+            staff_user,
+        )
+        readonly = admin.get_readonly_fields(request, obj=api_key)
+        assert "user" in readonly
+
+    def test_user_not_readonly_on_add(self, staff_user):
+        """user should be editable when adding a new key."""
+        admin = APIKeyAdmin(APIKey, AdminSite())
+        request = _make_request("GET", "/admin/keys/apikey/add/", staff_user)
+        readonly = admin.get_readonly_fields(request, obj=None)
+        assert "user" not in readonly

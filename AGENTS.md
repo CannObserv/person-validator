@@ -26,14 +26,29 @@ No production code is written without a corresponding test first.
 
 ```
 person-validator/
-├── src/              # Application source code
-├── tests/            # Test suite (mirrors src/ structure)
-├── pyproject.toml    # Project metadata & tool config
-├── AGENTS.md         # This file — agent conventions
-├── PLAYBOOKS.md      # Frequently-used development commands
-├── env               # Local secrets (git-ignored)
+├── src/
+│   ├── core/                 # Shared domain logic (fields, utilities)
+│   │   └── fields.py         # ULIDField
+│   └── web/                  # Django application
+│       ├── config/           # Settings, urls, wsgi/asgi
+│       ├── accounts/         # User model + exe.dev email auth backend
+│       ├── persons/          # Person + PersonName models & admin
+│       └── keys/             # API key model & admin management
+├── tests/                    # Test suite (mirrors src/ structure)
+├── pyproject.toml            # Project metadata & tool config
+├── AGENTS.md                 # This file — agent conventions
+├── PLAYBOOKS.md              # Frequently-used development commands
+├── env                       # Local secrets (git-ignored)
 └── README.md
 ```
+
+### Database Tables
+
+| Table | App | Purpose |
+|---|---|---|
+| `persons_person` | persons | Identity anchor, denormalized primary name |
+| `persons_personname` | persons | All name variants for a person |
+| `keys_apikey` | keys | API key hashes for FastAPI auth |
 
 ## Secrets
 

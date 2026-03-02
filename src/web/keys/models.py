@@ -36,11 +36,22 @@ class APIKey(models.Model):
     class Meta:
         db_table = "keys_apikey"
         ordering = ["-created_at"]
-        verbose_name = "API key"
-        verbose_name_plural = "API keys"
+        verbose_name = "API Key"
+        verbose_name_plural = "API Keys"
 
     def __str__(self) -> str:
         return f"{self.key_prefix}… ({self.label})"
+
+    @staticmethod
+    def prepare_raw_key() -> tuple[str, str, str]:
+        """Generate a raw key, its SHA-256 hash, and the 8-char prefix.
+
+        Returns (raw_key, key_hash, key_prefix). The raw key is a
+        high-entropy random string suitable for use as an API secret.
+        """
+        raw_key = secrets.token_urlsafe(32)
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        return raw_key, key_hash, raw_key[:8]
 
     @classmethod
     def generate(cls, *, user, label: str) -> tuple[str, "APIKey"]:
@@ -49,9 +60,7 @@ class APIKey(models.Model):
         Returns a (raw_key, api_key_instance) tuple. The raw key is only
         available at creation time — it is not stored.
         """
-        raw_key = secrets.token_urlsafe(32)
-        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-        key_prefix = raw_key[:8]
+        raw_key, key_hash, key_prefix = cls.prepare_raw_key()
         api_key = cls.objects.create(
             key_hash=key_hash,
             key_prefix=key_prefix,

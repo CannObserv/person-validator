@@ -232,3 +232,35 @@ class TestAPIKeyValidation:
         APIKey.validate("bad-key")
         api_key.refresh_from_db()
         assert api_key.last_used_at is None
+
+
+class TestPrepareRawKey:
+    """Tests for the prepare_raw_key static method."""
+
+    def test_returns_three_element_tuple(self):
+        """prepare_raw_key() returns (raw_key, key_hash, key_prefix)."""
+        result = APIKey.prepare_raw_key()
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
+    def test_raw_key_is_high_entropy(self):
+        """Raw key should be at least 32 characters."""
+        raw_key, _, _ = APIKey.prepare_raw_key()
+        assert len(raw_key) >= 32
+
+    def test_hash_matches_raw_key(self):
+        """key_hash should be SHA-256 of raw_key."""
+        raw_key, key_hash, _ = APIKey.prepare_raw_key()
+        expected = hashlib.sha256(raw_key.encode()).hexdigest()
+        assert key_hash == expected
+
+    def test_prefix_matches_raw_key(self):
+        """key_prefix should be first 8 chars of raw_key."""
+        raw_key, _, key_prefix = APIKey.prepare_raw_key()
+        assert key_prefix == raw_key[:8]
+
+    def test_successive_calls_are_unique(self):
+        """Two calls produce different raw keys."""
+        raw1, _, _ = APIKey.prepare_raw_key()
+        raw2, _, _ = APIKey.prepare_raw_key()
+        assert raw1 != raw2
