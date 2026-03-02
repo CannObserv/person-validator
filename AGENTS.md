@@ -147,6 +147,20 @@ If a playbook name exists in both files, the project-level definition takes prec
 
 ## Conventions
 
+### Date & Time
+
+- **All timestamps are stored in UTC.** Django settings enforce `USE_TZ = True`
+  and `TIME_ZONE = "UTC"`. Do not change these.
+- **Use ISO 8601 format** for all date/time serialization:
+  - Timestamps: `YYYY-MM-DDTHH:MM:SS.ffffffZ` (e.g. `2025-01-15T08:30:00.000000Z`)
+  - Dates: `YYYY-MM-DD` (e.g. `2025-01-15`)
+- In Python, use `django.utils.timezone.now()` for the current time — never
+  `datetime.datetime.now()` or `datetime.datetime.utcnow()`.
+- When calling `QuerySet.update()`, always include `updated_at=timezone.now()`
+  because `.update()` bypasses `auto_now`.
+
+### General
+
 - Keep functions and methods small and focused.
 - Prefer explicit imports over wildcard imports.
 - **No inline module imports.** All `import` and `from … import` statements

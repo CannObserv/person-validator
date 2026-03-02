@@ -53,6 +53,15 @@ class TestPersonModel:
         assert person.created_at is not None
         assert person.updated_at is not None
 
+    def test_person_timestamps_are_utc(self):
+        """Timestamps must be timezone-aware and in UTC."""
+        person = Person.objects.create(name="Jane Doe")
+        person.refresh_from_db()
+        assert person.created_at.tzinfo is not None
+        assert person.created_at.utcoffset() == timedelta(0)
+        assert person.updated_at.tzinfo is not None
+        assert person.updated_at.utcoffset() == timedelta(0)
+
     def test_person_str(self):
         """String representation is the display name."""
         person = Person.objects.create(name="Jane Doe")

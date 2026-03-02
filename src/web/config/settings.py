@@ -116,6 +116,10 @@ STORAGES = {
     },
 }
 
+# Internationalization & time zones
+TIME_ZONE = "UTC"
+USE_TZ = True
+
 # exe.dev proxy settings
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
