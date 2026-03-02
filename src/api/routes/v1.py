@@ -19,11 +19,15 @@ from src.api.schemas import (
     PersonReadResponse,
     QueryInfo,
 )
-from src.core.matching import search_variants
-from src.core.pipeline import BasicNormalization, Pipeline
+from src.core.matching import search
+from src.core.pipeline import BasicNormalization, StageRegistry
 from src.core.reading import read_person
 
-_default_pipeline = Pipeline(stages=[BasicNormalization()])
+# Assemble the default pipeline via the registry so stage order is
+# configuration-driven and new stages require zero endpoint changes.
+_registry = StageRegistry()
+_registry.register("basic_normalization", BasicNormalization)
+_default_pipeline = _registry.build_pipeline(["basic_normalization"])
 
 v1_router = APIRouter(
     prefix="/v1",
@@ -46,14 +50,9 @@ def find(
     """Find persons matching a name query."""
     pipeline_result = _default_pipeline.run(body.name)
     normalized = pipeline_result.resolved
-    variants = [normalized, *pipeline_result.variants]
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    unique_variants: list[str] = []
-    for v in variants:
-        if v not in seen:
-            seen.add(v)
-            unique_variants.append(v)
+    # resolved is always searched first; variants produced by stages come after.
+    # dict.fromkeys preserves insertion order while deduplicating.
+    unique_variants: list[str] = list(dict.fromkeys([normalized, *pipeline_result.variants]))
 
     query_info = QueryInfo(
         original=body.name,
@@ -61,7 +60,7 @@ def find(
         variants=unique_variants,
     )
 
-    matches = search_variants(conn, unique_variants)
+    matches = search(conn, unique_variants)
     results = [
         FindResult(
             id=m.person_id,

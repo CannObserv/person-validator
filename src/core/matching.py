@@ -31,40 +31,29 @@ class MatchResult:
     name_type: str
 
 
-def search_variants(conn: sqlite3.Connection, variants: list[str]) -> list[MatchResult]:
-    """Search across multiple normalized variants, returning deduplicated results.
+def search(conn: sqlite3.Connection, variants: list[str]) -> list[MatchResult]:
+    """Search PersonName records for matches against one or more normalized variants.
 
-    Each variant is searched independently; the best certainty per person
-    across all variants is kept.
-    """
-    best: dict[str, MatchResult] = {}
-    for variant in variants:
-        for match in search(conn, variant):
-            pid = match.person_id
-            if pid not in best or match.certainty > best[pid].certainty:
-                best[pid] = match
-    return sorted(best.values(), key=lambda r: r.certainty, reverse=True)
-
-
-def search(conn: sqlite3.Connection, normalized: str) -> list[MatchResult]:
-    """Search PersonName records for matches against the normalized query.
-
-    Matching strategy:
-    1. Exact match on full_name (case-insensitive) → 1.0 for primary, 0.9 for others
-    2. Match on given_name + surname combination → 0.8 for primary, 0.7 for others
+    Accepts a list of normalized name strings and executes two batch queries:
+    1. Exact full_name match (IN clause) → certainty 1.0 primary / 0.9 other
+    2. given_name + surname combination (OR-expanded) → 0.8 primary / 0.7 other
 
     Returns results sorted by certainty descending, one entry per person
-    (highest certainty wins).
+    (highest certainty across all variants wins).
     """
+    if not variants:
+        return []
+
     best: dict[str, MatchResult] = {}
 
-    # 1. Exact full_name match (case-insensitive)
+    # 1. Batch exact full_name match
+    placeholders = ",".join("?" * len(variants))
     rows = conn.execute(
-        "SELECT pn.full_name, pn.name_type, pn.is_primary, p.id AS person_id"
-        " FROM persons_personname pn"
-        " JOIN persons_person p ON p.id = pn.person_id"
-        " WHERE LOWER(pn.full_name) = ?",
-        (normalized,),
+        f"SELECT pn.full_name, pn.name_type, pn.is_primary, p.id AS person_id"
+        f" FROM persons_personname pn"
+        f" JOIN persons_person p ON p.id = pn.person_id"
+        f" WHERE LOWER(pn.full_name) IN ({placeholders})",
+        variants,
     ).fetchall()
 
     for row in rows:
@@ -78,17 +67,24 @@ def search(conn: sqlite3.Connection, normalized: str) -> list[MatchResult]:
                 name_type=row["name_type"],
             )
 
-    # 2. given_name + surname combination match
-    parts = normalized.split()
-    if len(parts) >= 2:
-        given = parts[0]
-        surname = parts[-1]
+    # 2. Batch given_name + surname match
+    # Build unique (given, surname) pairs from all multi-word variants.
+    pairs: list[tuple[str, str]] = list(
+        dict.fromkeys((parts[0], parts[-1]) for v in variants if len(parts := v.split()) >= 2)
+    )
+
+    if pairs:
+        # Expand to: (LOWER(given)=? AND LOWER(surname)=?) OR ...
+        pair_clauses = " OR ".join(
+            "(LOWER(pn.given_name) = ? AND LOWER(pn.surname) = ?)" for _ in pairs
+        )
+        params = [val for pair in pairs for val in pair]
         rows = conn.execute(
-            "SELECT pn.full_name, pn.name_type, pn.is_primary, p.id AS person_id"
-            " FROM persons_personname pn"
-            " JOIN persons_person p ON p.id = pn.person_id"
-            " WHERE LOWER(pn.given_name) = ? AND LOWER(pn.surname) = ?",
-            (given, surname),
+            f"SELECT pn.full_name, pn.name_type, pn.is_primary, p.id AS person_id"
+            f" FROM persons_personname pn"
+            f" JOIN persons_person p ON p.id = pn.person_id"
+            f" WHERE {pair_clauses}",
+            params,
         ).fetchall()
 
         for row in rows:

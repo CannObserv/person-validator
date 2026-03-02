@@ -40,7 +40,7 @@ person-validator/
 │   ├── core/                 # Shared domain logic (fields, utilities)
 │   │   ├── fields.py         # ULIDField
 │   │   ├── key_validation.py # Single-sourced API key validation (raw SQL)
-│   │   ├── matching.py       # Name search (raw SQL); search() + search_variants()
+│   │   ├── matching.py       # Name search (raw SQL); search(conn, variants) batch query
 │   │   └── pipeline/         # Name normalization pipeline framework
 │   │       ├── __init__.py   # Public re-exports (Pipeline, Stage, PipelineResult, …)
 │   │       ├── base.py       # PipelineResult dataclass, Stage ABC, Pipeline runner
@@ -63,6 +63,32 @@ person-validator/
 ├── env                       # Local secrets (git-ignored)
 └── README.md
 ```
+
+### Pipeline Architecture
+
+`POST /v1/find` runs the input name through an ordered chain of `Stage` instances
+before searching the database. Each stage receives a `PipelineResult` and returns
+a modified copy — it may update `resolved` (the primary search string) and/or
+append additional strings to `variants`.
+
+**Contract:**
+- Stages only update `resolved` and `variants` — they never mutate the incoming
+  result or touch `original`.
+- A stage that only normalises input (e.g. `BasicNormalization`) updates
+  `resolved` but does **not** append it to `variants`. The endpoint is responsible
+  for placing `resolved` first in the search variant list.
+- Stages that generate alternatives (e.g. nickname expansion) append those
+  alternatives to `variants`; the endpoint includes them in the search.
+
+**Assembly:** The production default pipeline is built through `StageRegistry`
+in `src/api/routes/v1.py`. New stages are added by registering them and updating
+the ordered name list — no changes to the endpoint or matching layer required.
+
+**Search:** `search(conn, variants)` in `matching.py` executes two batch SQL
+queries across all variants: one `IN` clause for full-name matches, one
+OR-expanded clause for (given, surname) pair matches.
+
+---
 
 ### Database Tables
 

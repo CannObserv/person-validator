@@ -39,6 +39,7 @@ class StageRegistry:
         if name not in self._entries:
             raise KeyError(f"unknown stage: {name!r}")
         cls, config = self._entries[name]
+        # config keys must match the keyword arguments accepted by cls.__init__.
         return cls(**config) if config else cls()
 
     def build_pipeline(self, names: list[str]) -> Pipeline:

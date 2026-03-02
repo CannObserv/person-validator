@@ -6,8 +6,10 @@ import re
 
 from src.core.pipeline.base import PipelineResult, Stage
 
-# Matches punctuation to remove: everything except letters, whitespace, hyphens
-_STRIP_RE = re.compile(r"[^\w\s-]")
+# Matches characters to remove: everything except ASCII letters, whitespace, hyphens.
+# Explicitly uses [^a-zA-Z\s-] rather than [^\w\s-] so that underscores and
+# digits are stripped, consistent with the normalize() function in matching.py.
+_STRIP_RE = re.compile(r"[^a-zA-Z\s-]")
 # Collapse runs of whitespace (including tabs/newlines)
 _SPACE_RE = re.compile(r"\s+")
 
@@ -17,11 +19,12 @@ class BasicNormalization(Stage):
 
     Transforms the resolved name by:
     - Lowercasing
-    - Removing punctuation other than hyphens
+    - Removing characters other than ASCII letters, whitespace, and hyphens
     - Collapsing whitespace and stripping leading/trailing space
 
-    If the normalized form differs from the incoming resolved value,
-    it is appended to variants so the matching layer can search on it.
+    This stage only updates ``resolved``; it never appends to ``variants``.
+    It is the caller's responsibility to include ``resolved`` in the variant
+    list passed to the matching layer.
     """
 
     def process(self, result: PipelineResult) -> PipelineResult:
@@ -30,12 +33,8 @@ class BasicNormalization(Stage):
         normalized = _STRIP_RE.sub("", normalized)
         normalized = _SPACE_RE.sub(" ", normalized).strip()
 
-        variants = list(result.variants)
-        if normalized != result.resolved and normalized not in variants:
-            variants.append(normalized)
-
         return PipelineResult(
             original=result.original,
             resolved=normalized,
-            variants=variants,
+            variants=list(result.variants),
         )

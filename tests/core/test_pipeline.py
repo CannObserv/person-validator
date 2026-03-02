@@ -138,13 +138,19 @@ class TestBasicNormalization:
         result = self._run("Mary-Jane Watson")
         assert result.resolved == "mary-jane watson"
 
-    def test_variant_added_when_different(self):
-        """If normalization changes the string, the normalized form is in variants."""
-        result = self._run("Robert Smith")
-        assert "robert smith" in result.variants
+    def test_resolved_is_normalized_form(self):
+        """Normalization result is carried in resolved, not appended to variants.
 
-    def test_no_duplicate_variant_when_already_normalized(self):
-        """If input already lowercase with no punctuation, variants stays empty."""
+        BasicNormalization only updates resolved; it never writes to variants.
+        The caller is responsible for including resolved in the variant list
+        passed to the matching layer.
+        """
+        result = self._run("Robert Smith")
+        assert result.resolved == "robert smith"
+        assert result.variants == []
+
+    def test_variants_always_empty_after_basic_normalization(self):
+        """BasicNormalization never appends to variants regardless of input."""
         result = self._run("robert smith")
         assert result.variants == []
 
@@ -162,6 +168,11 @@ class TestBasicNormalization:
         result = self._run("...,,")
         assert result.resolved == ""
 
+    def test_strips_underscores(self):
+        """Underscores are stripped, consistent with normalize() in matching.py."""
+        result = self._run("bob_smith")
+        assert result.resolved == "bobsmith"
+
     def test_original_preserved(self):
         result = self._run("Robert Smith")
         assert result.original == "Robert Smith"
@@ -175,4 +186,7 @@ class TestPipelineWithBasicNormalization:
         result = pipeline.run("  Dr. Jane Smith,  ")
         assert result.original == "  Dr. Jane Smith,  "
         assert result.resolved == "dr jane smith"
-        assert result.resolved in result.variants
+        # BasicNormalization only sets resolved; variants remain empty.
+        # The caller (endpoint) is responsible for including resolved in the
+        # variant list passed to the matching layer.
+        assert result.variants == []
