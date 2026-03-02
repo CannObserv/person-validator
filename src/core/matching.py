@@ -31,6 +31,21 @@ class MatchResult:
     name_type: str
 
 
+def search_variants(conn: sqlite3.Connection, variants: list[str]) -> list[MatchResult]:
+    """Search across multiple normalized variants, returning deduplicated results.
+
+    Each variant is searched independently; the best certainty per person
+    across all variants is kept.
+    """
+    best: dict[str, MatchResult] = {}
+    for variant in variants:
+        for match in search(conn, variant):
+            pid = match.person_id
+            if pid not in best or match.certainty > best[pid].certainty:
+                best[pid] = match
+    return sorted(best.values(), key=lambda r: r.certainty, reverse=True)
+
+
 def search(conn: sqlite3.Connection, normalized: str) -> list[MatchResult]:
     """Search PersonName records for matches against the normalized query.
 

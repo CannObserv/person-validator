@@ -40,7 +40,12 @@ person-validator/
 │   ├── core/                 # Shared domain logic (fields, utilities)
 │   │   ├── fields.py         # ULIDField
 │   │   ├── key_validation.py # Single-sourced API key validation (raw SQL)
-│   │   └── matching.py       # Name normalization + search (raw SQL)
+│   │   ├── matching.py       # Name search (raw SQL); search() + search_variants()
+│   │   └── pipeline/         # Name normalization pipeline framework
+│   │       ├── __init__.py   # Public re-exports (Pipeline, Stage, PipelineResult, …)
+│   │       ├── base.py       # PipelineResult dataclass, Stage ABC, Pipeline runner
+│   │       ├── registry.py   # StageRegistry — config-driven pipeline assembly
+│   │       └── stages.py     # Concrete stages (BasicNormalization)
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend

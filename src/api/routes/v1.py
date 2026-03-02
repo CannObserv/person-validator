@@ -19,8 +19,11 @@ from src.api.schemas import (
     PersonReadResponse,
     QueryInfo,
 )
-from src.core.matching import normalize, search
+from src.core.matching import search_variants
+from src.core.pipeline import BasicNormalization, Pipeline
 from src.core.reading import read_person
+
+_default_pipeline = Pipeline(stages=[BasicNormalization()])
 
 v1_router = APIRouter(
     prefix="/v1",
@@ -41,16 +44,24 @@ def find(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> JSONResponse:
     """Find persons matching a name query."""
-    normalized = normalize(body.name)
-    variants = [normalized]
+    pipeline_result = _default_pipeline.run(body.name)
+    normalized = pipeline_result.resolved
+    variants = [normalized, *pipeline_result.variants]
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique_variants: list[str] = []
+    for v in variants:
+        if v not in seen:
+            seen.add(v)
+            unique_variants.append(v)
 
     query_info = QueryInfo(
         original=body.name,
         normalized=normalized,
-        variants=variants,
+        variants=unique_variants,
     )
 
-    matches = search(conn, normalized)
+    matches = search_variants(conn, unique_variants)
     results = [
         FindResult(
             id=m.person_id,
