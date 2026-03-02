@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "src.web.accounts",
     "src.web.persons",
+    "src.web.keys",
 ]
 
 MIDDLEWARE = [
