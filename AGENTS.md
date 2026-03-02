@@ -189,6 +189,11 @@ DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django runserver
 
 ### Service Management
 
+> **After any code change to the API or Web app, restart the corresponding
+> service.** The systemd-managed uvicorn/gunicorn processes do not auto-reload
+> in production. Forgetting this step means the running service still serves
+> the old code.
+
 ```bash
 # Install/update systemd unit files from repo
 sudo cp deploy/person-validator-web.service /etc/systemd/system/
