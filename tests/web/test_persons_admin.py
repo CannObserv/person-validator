@@ -1,6 +1,7 @@
 """Tests for Person and PersonName admin configuration."""
 
 import pytest
+from django.contrib.admin import site as admin_site
 from django.contrib.admin.sites import AdminSite
 
 from src.web.persons.admin import PersonAdmin, PersonNameInline
@@ -50,12 +51,8 @@ class TestPersonAdminIntegration:
 
     def test_person_registered_in_admin(self):
         """Person model is registered in the admin site."""
-        from django.contrib.admin import site
-
-        assert Person in site._registry
+        assert Person in admin_site._registry
 
     def test_person_name_not_registered_standalone(self):
         """PersonName should only be available as inline, not standalone."""
-        from django.contrib.admin import site
-
-        assert PersonName not in site._registry
+        assert PersonName not in admin_site._registry

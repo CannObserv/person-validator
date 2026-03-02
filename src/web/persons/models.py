@@ -1,6 +1,7 @@
 """Person and PersonName models."""
 
 from django.db import models
+from django.utils import timezone
 
 from src.core.fields import ULIDField
 
@@ -89,6 +90,7 @@ class PersonName(models.Model):
             ).exclude(pk=self.pk).update(
                 is_primary=False,
                 name_type="former",
+                updated_at=timezone.now(),
             )
         super().save(*args, **kwargs)
         if self.is_primary:
@@ -101,4 +103,5 @@ class PersonName(models.Model):
             given_name=self.given_name,
             middle_name=self.middle_name,
             surname=self.surname,
+            updated_at=timezone.now(),
         )

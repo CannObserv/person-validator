@@ -1,7 +1,10 @@
 """Tests for Person and PersonName models."""
 
+from datetime import timedelta
+
 import pytest
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.utils import timezone
 
 from src.core.fields import ULIDField
 from src.web.persons.models import NAME_TYPE_CHOICES, Person, PersonName
@@ -209,6 +212,25 @@ class TestPrimarySync:
         assert person.given_name == "New"
         assert person.surname == "Name"
 
+    def test_primary_sync_updates_person_updated_at(self):
+        """Syncing a primary PersonName advances Person.updated_at."""
+        person = Person.objects.create(name="Placeholder")
+        # Push created timestamp into the past so the delta is unambiguous
+        Person.objects.filter(pk=person.pk).update(
+            updated_at=timezone.now() - timedelta(seconds=10)
+        )
+        person.refresh_from_db()
+        old_updated = person.updated_at
+        PersonName.objects.create(
+            person=person,
+            name_type="primary",
+            full_name="Jane Doe",
+            is_primary=True,
+            source="manual",
+        )
+        person.refresh_from_db()
+        assert person.updated_at > old_updated
+
     def test_non_primary_does_not_sync(self):
         """Creating a non-primary PersonName does NOT sync to Person."""
         person = Person.objects.create(name="Original")
@@ -273,6 +295,32 @@ class TestPrimaryDemotion:
         assert person.name == "Jane Smith"
         assert person.surname == "Smith"
 
+    def test_demoted_person_name_updated_at_advances(self):
+        """Demoted PersonName's updated_at is refreshed."""
+        person = Person.objects.create(name="Jane Doe")
+        old_pn = PersonName.objects.create(
+            person=person,
+            name_type="primary",
+            full_name="Jane Doe",
+            is_primary=True,
+            source="manual",
+        )
+        # Push into the past
+        PersonName.objects.filter(pk=old_pn.pk).update(
+            updated_at=timezone.now() - timedelta(seconds=10)
+        )
+        old_pn.refresh_from_db()
+        old_ts = old_pn.updated_at
+        PersonName.objects.create(
+            person=person,
+            name_type="primary",
+            full_name="Jane Smith",
+            is_primary=True,
+            source="manual",
+        )
+        old_pn.refresh_from_db()
+        assert old_pn.updated_at > old_ts
+
     def test_exactly_one_primary_after_demotion(self):
         """After demotion there is exactly one primary PersonName."""
         person = Person.objects.create(name="Jane Doe")
@@ -312,8 +360,6 @@ class TestUniquePrimaryConstraint:
             source="manual",
         )
         # Bypass the save() override by using raw SQL
-        from django.db import connection
-
         with connection.cursor() as cursor:
             with pytest.raises(IntegrityError):
                 cursor.execute(
