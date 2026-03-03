@@ -401,6 +401,95 @@ class TestUniquePrimaryConstraint:
 
 
 @pytest.mark.django_db
+class TestAttributeLabel:
+    """Tests for the AttributeLabel model."""
+
+    def test_create_label(self):
+        from src.web.persons.models import AttributeLabel
+
+        label = AttributeLabel.objects.create(
+            value_type="email", slug="vip", display="VIP", sort_order=99
+        )
+        assert label.pk is not None
+        assert str(label) == "email/vip"
+
+    def test_unique_together_constraint(self):
+        from django.db import IntegrityError
+
+        from src.web.persons.models import AttributeLabel
+
+        AttributeLabel.objects.create(value_type="email", slug="custom-unique", display="Custom")
+        with pytest.raises(IntegrityError):
+            AttributeLabel.objects.create(value_type="email", slug="custom-unique", display="Dupe")
+
+    def test_different_type_same_slug_allowed(self):
+        from src.web.persons.models import AttributeLabel
+
+        # "work" already exists for email from data migration; only create for a type without it
+        label = AttributeLabel.objects.create(value_type="date", slug="work", display="Work")
+        assert label.pk is not None
+
+    def test_is_active_default_true(self):
+        from src.web.persons.models import AttributeLabel
+
+        label = AttributeLabel.objects.create(value_type="email", slug="test-new-slug", display="X")
+        assert label.is_active is True
+
+    def test_active_filter(self):
+        from src.web.persons.models import AttributeLabel
+
+        AttributeLabel.objects.create(
+            value_type="email", slug="active-only", display="Active", is_active=True
+        )
+        AttributeLabel.objects.create(
+            value_type="email", slug="inactive-only", display="Old", is_active=False
+        )
+        active = list(
+            AttributeLabel.objects.filter(value_type="email", is_active=True).values_list(
+                "slug", flat=True
+            )
+        )
+        assert "active-only" in active
+        assert "inactive-only" not in active
+
+
+@pytest.mark.django_db
+class TestSocialPlatform:
+    """Tests for the SocialPlatform model."""
+
+    def test_create_platform(self):
+        from src.web.persons.models import SocialPlatform
+
+        p = SocialPlatform.objects.create(slug="mastodon", display="Mastodon", sort_order=99)
+        assert p.pk is not None
+        assert str(p) == "Mastodon"
+
+    def test_unique_slug_constraint(self):
+        from django.db import IntegrityError
+
+        from src.web.persons.models import SocialPlatform
+
+        SocialPlatform.objects.create(slug="custom-platform", display="Custom")
+        with pytest.raises(IntegrityError):
+            SocialPlatform.objects.create(slug="custom-platform", display="Dupe")
+
+    def test_is_active_default_true(self):
+        from src.web.persons.models import SocialPlatform
+
+        p = SocialPlatform.objects.create(slug="bluesky", display="Bluesky")
+        assert p.is_active is True
+
+    def test_active_filter(self):
+        from src.web.persons.models import SocialPlatform
+
+        SocialPlatform.objects.create(slug="new-active-net", display="NewActive", is_active=True)
+        SocialPlatform.objects.create(slug="old-inactive-net", display="OldNet", is_active=False)
+        active = list(SocialPlatform.objects.filter(is_active=True).values_list("slug", flat=True))
+        assert "new-active-net" in active
+        assert "old-inactive-net" not in active
+
+
+@pytest.mark.django_db
 class TestPersonAttribute:
     """Tests for PersonAttribute model."""
 
@@ -487,3 +576,61 @@ class TestPersonAttribute:
     def test_db_table_name(self):
         """Table name should be persons_personattribute."""
         assert PersonAttribute._meta.db_table == "persons_personattribute"
+
+    def test_value_type_defaults_to_text(self):
+        """value_type defaults to 'text'."""
+        person = Person.objects.create(name="Jane Doe")
+        attr = PersonAttribute.objects.create(
+            person=person, source="test", key="employer", value="Acme", confidence=0.9
+        )
+        assert attr.value_type == "text"
+
+    def test_value_type_filter(self):
+        """Attributes can be filtered by value_type."""
+        person = Person.objects.create(name="Jane Doe")
+        PersonAttribute.objects.create(
+            person=person, source="t", key="e", value="a@b.com", confidence=1.0, value_type="email"
+        )
+        PersonAttribute.objects.create(
+            person=person,
+            source="t",
+            key="p",
+            value="+1234567890",
+            confidence=1.0,
+            value_type="phone",
+        )
+        assert PersonAttribute.objects.filter(value_type="email").count() == 1
+        assert PersonAttribute.objects.filter(value_type="phone").count() == 1
+
+    def test_metadata_stored_and_retrieved(self):
+        """metadata JSONField round-trips correctly."""
+        person = Person.objects.create(name="Jane Doe")
+        meta = {"label": ["work"], "city": "Denver"}
+        attr = PersonAttribute.objects.create(
+            person=person,
+            source="test",
+            key="address",
+            value="Denver, CO",
+            confidence=0.8,
+            value_type="location",
+            metadata=meta,
+        )
+        attr.refresh_from_db()
+        assert attr.metadata == meta
+
+    def test_metadata_nullable(self):
+        """metadata defaults to null."""
+        person = Person.objects.create(name="Jane Doe")
+        attr = PersonAttribute.objects.create(
+            person=person, source="t", key="x", value="y", confidence=1.0
+        )
+        attr.refresh_from_db()
+        assert attr.metadata is None
+
+    def test_updated_at_auto_set(self):
+        """updated_at is set automatically."""
+        person = Person.objects.create(name="Jane Doe")
+        attr = PersonAttribute.objects.create(
+            person=person, source="t", key="x", value="y", confidence=1.0
+        )
+        assert attr.updated_at is not None

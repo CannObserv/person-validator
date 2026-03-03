@@ -74,9 +74,9 @@ class TestReadPerson:
         aid = str(ULID())
         conn.execute(
             "INSERT INTO persons_personattribute"
-            " (id, person_id, source, key, value, confidence, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-            (aid, pid, "test", "employer", "Acme", 0.9),
+            " (id, person_id, source, key, value, value_type, confidence, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (aid, pid, "test", "employer", "Acme", "text", 0.9),
         )
         conn.commit()
 

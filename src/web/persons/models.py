@@ -1,4 +1,4 @@
-"""Person and PersonName models."""
+"""Person, PersonName, PersonAttribute, AttributeLabel, and SocialPlatform models."""
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -108,6 +108,56 @@ class PersonName(models.Model):
         )
 
 
+VALUE_TYPE_CHOICES = [
+    ("text", "Text"),
+    ("email", "Email"),
+    ("phone", "Phone"),
+    ("url", "URL"),
+    ("platform_url", "Platform URL"),
+    ("location", "Location"),
+    ("date", "Date"),
+]
+
+
+class AttributeLabel(models.Model):
+    """Controlled vocabulary of labels scoped per value_type.
+
+    Labels are stored as a JSON array in PersonAttribute.metadata["label"].
+    Each label is scoped to a specific value_type (email, phone, url,
+    platform_url, location).
+    """
+
+    value_type = models.CharField(max_length=50)
+    slug = models.SlugField(max_length=50)
+    display = models.CharField(max_length=100)
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "persons_attributelabel"
+        unique_together = [("value_type", "slug")]
+        ordering = ["value_type", "sort_order", "slug"]
+
+    def __str__(self) -> str:
+        return f"{self.value_type}/{self.slug}"
+
+
+class SocialPlatform(models.Model):
+    """Controlled vocabulary of social/platform identifiers for platform_url attributes."""
+
+    slug = models.SlugField(max_length=50, unique=True)
+    display = models.CharField(max_length=100)
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "persons_socialplatform"
+        ordering = ["sort_order", "slug"]
+
+    def __str__(self) -> str:
+        return self.display
+
+
 class PersonAttribute(models.Model):
     """Enrichment data about a person (append-only EAV)."""
 
@@ -120,10 +170,18 @@ class PersonAttribute(models.Model):
     source = models.CharField(max_length=200)
     key = models.CharField(max_length=200)
     value = models.TextField()
+    value_type = models.CharField(
+        max_length=50,
+        choices=VALUE_TYPE_CHOICES,
+        default="text",
+        db_index=True,
+    )
+    metadata = models.JSONField(null=True, blank=True)
     confidence = models.FloatField(
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "persons_personattribute"

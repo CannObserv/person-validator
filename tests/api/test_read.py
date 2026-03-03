@@ -156,9 +156,9 @@ class TestReadSuccess:
         conn = sqlite3.connect(str(tmp_db))
         conn.execute(
             "INSERT INTO persons_personattribute"
-            " (id, person_id, source, key, value, confidence, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-            (attr_id, pid, "test_provider", "employer", "Acme Corp", 0.85),
+            " (id, person_id, source, key, value, value_type, confidence, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (attr_id, pid, "test_provider", "employer", "Acme Corp", "text", 0.85),
         )
         conn.commit()
         conn.close()
