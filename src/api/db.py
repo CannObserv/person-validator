@@ -22,12 +22,13 @@ def get_db_path() -> Path:
 
 
 def get_connection() -> sqlite3.Connection:
-    """Open a new SQLite connection with WAL mode and Row factory.
+    """Open a new SQLite connection with WAL mode, Row factory, and FK enforcement.
 
     Callers are responsible for closing the connection.
     """
     conn = sqlite3.connect(str(get_db_path()))
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn
 

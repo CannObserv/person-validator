@@ -3,6 +3,9 @@
 import os
 import sqlite3
 
+import pytest
+from ulid import ULID
+
 from src.api.db import get_connection, get_db_path
 
 
@@ -54,6 +57,36 @@ class TestGetConnection:
         try:
             conn = get_connection()
             assert conn.row_factory is sqlite3.Row
+            conn.close()
+        finally:
+            del os.environ["DATABASE_PATH"]
+
+    def test_foreign_keys_enforced(self, tmp_db):
+        """Connection must have PRAGMA foreign_keys = ON."""
+        os.environ["DATABASE_PATH"] = str(tmp_db)
+        try:
+            conn = get_connection()
+            result = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+            conn.close()
+            assert result == 1
+        finally:
+            del os.environ["DATABASE_PATH"]
+
+    def test_fk_violation_raises_integrity_error(self, migrated_db):
+        """Inserting a PersonAttribute with a non-existent person_id raises IntegrityError."""
+        os.environ["DATABASE_PATH"] = str(migrated_db)
+        try:
+            conn = get_connection()
+            bogus_person_id = str(ULID())
+            attr_id = str(ULID())
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO persons_personattribute"
+                    " (id, person_id, value_type, value, metadata, created_at, updated_at)"
+                    " VALUES (?, ?, 'text', 'hello', '{}', datetime('now'), datetime('now'))",
+                    (attr_id, bogus_person_id),
+                )
+                conn.commit()
             conn.close()
         finally:
             del os.environ["DATABASE_PATH"]
