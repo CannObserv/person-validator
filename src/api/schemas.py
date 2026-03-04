@@ -82,6 +82,23 @@ class PersonAttributeSchema(BaseModel):
     created_at: str
 
 
+class VersionEntry(BaseModel):
+    """A single API version entry in the /versions response."""
+
+    model_config = {"populate_by_name": True}
+
+    version: str
+    status: str  # "stable" | "deprecated"
+    prefix: str
+    sunset_date: str | None = None
+
+
+class VersionsResponse(BaseModel):
+    """Response body for GET /versions."""
+
+    versions: list[VersionEntry]
+
+
 class PersonReadResponse(BaseModel):
     """Response body for GET /v1/read/{id}."""
 

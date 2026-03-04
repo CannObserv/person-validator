@@ -120,11 +120,41 @@ Defined in `src/core/enrichment/attribute_types.LABELABLE_TYPES`.
 | Web/Admin | Django | 8000 | `person-validator-web` |
 | API | FastAPI | 8001 | `person-validator-api` |
 
+### API Versioning Strategy
+
+**Versioning scheme:** URL prefix only (`/v1/`, `/v2/`, …). No header-based negotiation. Stable versions only — no `/v2beta/` or experimental channels.
+
+**Breaking vs. non-breaking changes:**
+
+A *breaking change* requires a new major version:
+- Removing or renaming an endpoint, request field, or response field
+- Changing the type or format of a field
+- Tightening validation (a previously-accepted value is now rejected)
+- Changing field semantics in a way that would silently alter client behavior
+
+A *non-breaking change* may be made within the current version:
+- Adding a new optional request or response field
+- Adding a new endpoint
+- Relaxing validation on existing inputs
+- Bug fixes that restore documented behavior
+
+**Deprecation timeline:** When a successor version ships, the prior version enters a **1-month sunset window**, after which it is removed.
+
+**Deprecation signaling (three channels — applied during the sunset window):**
+1. `Deprecation: true` and `Sunset: <RFC 1123 date>` HTTP response headers (RFC 8594) on every response from the deprecated version.
+2. `deprecation_warning` field in every response body pointing clients to the new version.
+3. FastAPI router and endpoints marked `deprecated=True` so notices appear in `/docs` and `/redoc`.
+
+**Version discovery:** `GET /versions` (public, no auth) returns all supported versions with `status` (`"stable"` | `"deprecated"`) and `sunset_date` (ISO 8601, deprecated entries only). The version registry lives in `src/api/routes/health.py` as `_API_VERSIONS`.
+
+---
+
 ### API Endpoints
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/health` | None | Public health check |
+| GET | `/versions` | None | List supported API versions and deprecation status |
 | GET | `/v1/health` | API key | Authenticated health check |
 | POST | `/v1/find` | API key | Find persons by name query |
 | GET | `/v1/read/{id}` | API key | Full person record by ID |
