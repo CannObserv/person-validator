@@ -2,6 +2,9 @@
 
 import pytest
 
+import src.api.routes.health as health_module
+from src.api.schemas import VersionEntry
+
 
 @pytest.mark.anyio
 class TestVersionsEndpoint:
@@ -12,9 +15,9 @@ class TestVersionsEndpoint:
         response = await client.get("/versions")
         assert response.status_code == 200
 
-    async def test_versions_does_not_require_auth(self, client):
-        """GET /versions should be publicly accessible without an API key."""
-        response = await client.get("/versions")
+    async def test_versions_requires_no_api_key(self, client):
+        """GET /versions must return 200 even with no X-API-Key header."""
+        response = await client.get("/versions", headers={})
         assert response.status_code == 200
 
     async def test_versions_response_has_versions_key(self, client):
@@ -51,3 +54,36 @@ class TestVersionsEndpoint:
         versions = response.json()["versions"]
         v1 = next(v for v in versions if v["version"] == "v1")
         assert "sunset_date" not in v1
+
+    async def test_deprecated_entry_includes_sunset_date(self, client, monkeypatch):
+        """A deprecated version entry must include a sunset_date field."""
+        deprecated = (
+            VersionEntry(
+                version="v0",
+                status="deprecated",
+                prefix="/v0",
+                sunset_date="2026-04-01",
+            ),
+        )
+        monkeypatch.setattr(health_module, "_API_VERSIONS", deprecated)
+        response = await client.get("/versions")
+        versions = response.json()["versions"]
+        v0 = next(v for v in versions if v["version"] == "v0")
+        assert v0["status"] == "deprecated"
+        assert v0["sunset_date"] == "2026-04-01"
+
+    async def test_deprecated_entry_has_correct_prefix(self, client, monkeypatch):
+        """A deprecated version entry must include the correct prefix."""
+        deprecated = (
+            VersionEntry(
+                version="v0",
+                status="deprecated",
+                prefix="/v0",
+                sunset_date="2026-04-01",
+            ),
+        )
+        monkeypatch.setattr(health_module, "_API_VERSIONS", deprecated)
+        response = await client.get("/versions")
+        versions = response.json()["versions"]
+        v0 = next(v for v in versions if v["version"] == "v0")
+        assert v0["prefix"] == "/v0"

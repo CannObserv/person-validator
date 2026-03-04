@@ -1,5 +1,7 @@
 """Shared Pydantic models for the FastAPI service."""
 
+from typing import Literal
+
 from pydantic import BaseModel, field_validator
 
 
@@ -85,10 +87,8 @@ class PersonAttributeSchema(BaseModel):
 class VersionEntry(BaseModel):
     """A single API version entry in the /versions response."""
 
-    model_config = {"populate_by_name": True}
-
     version: str
-    status: str  # "stable" | "deprecated"
+    status: Literal["stable", "deprecated"]
     prefix: str
     sunset_date: str | None = None
 

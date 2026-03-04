@@ -8,9 +8,11 @@ health_router = APIRouter(tags=["health"])
 
 # Registry of API versions served by this application.
 # When a version is deprecated, set status="deprecated" and add sunset_date.
-_API_VERSIONS: list[VersionEntry] = [
+# Read-only registry — do not mutate at runtime.
+# To deprecate a version: set status="deprecated" and add sunset_date="YYYY-MM-DD".
+_API_VERSIONS: tuple[VersionEntry, ...] = (
     VersionEntry(version="v1", status="stable", prefix="/v1"),
-]
+)
 
 
 @health_router.get("/health", response_model=HealthResponse)
