@@ -6,6 +6,7 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
+from pythonjsonlogger import json as _jsonlogger
 
 # Build paths relative to project root (person-validator/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -40,7 +41,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "src.web.accounts",
+    "src.web.accounts.apps.AccountsConfig",
     "src.web.persons",
     "src.web.keys",
 ]
@@ -106,8 +107,6 @@ USE_TZ = True
 # Logging — JSON to console, level from LOG_LEVEL env var (default INFO)
 _LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
-from pythonjsonlogger import json as _jsonlogger  # noqa: E402
-
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -143,7 +142,7 @@ LOGGING = {
         "django.db.backends": {
             "handlers": ["console"],
             # DB query logging is noisy; silence below WARNING unless overridden.
-            "level": max(logging.getLevelName(_LOG_LEVEL), logging.WARNING),
+            "level": logging.getLevelName(max(logging.getLevelName(_LOG_LEVEL), logging.WARNING)),
             "propagate": False,
         },
         "src": {

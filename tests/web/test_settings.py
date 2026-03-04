@@ -74,6 +74,11 @@ class TestLoggingSettings:
         level = settings.LOGGING["loggers"]["django"]["level"]
         assert logging.getLevelName(level) != f"Level {level}"
 
+    def test_db_backends_logger_level_is_string(self):
+        """The 'django.db.backends' logger level must be a string, not an int."""
+        level = settings.LOGGING["loggers"]["django.db.backends"]["level"]
+        assert isinstance(level, str)
+
 
 @pytest.mark.django_db
 class TestForeignKeyEnforcement:

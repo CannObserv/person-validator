@@ -6,9 +6,7 @@ import logging
 
 import pytest
 
-from src.core.logging import configure_logging, get_logger
-
-_HANDLER_MARKER = "_pv_json_handler"
+from src.core.logging import HANDLER_MARKER, configure_logging, get_logger
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +22,7 @@ def _reset_root_logger():
     original_level = root.level
     original_handlers = root.handlers[:]
     # Strip our marker handler so each test starts clean.
-    root.handlers = [h for h in root.handlers if not getattr(h, _HANDLER_MARKER, False)]
+    root.handlers = [h for h in root.handlers if not getattr(h, HANDLER_MARKER, False)]
     yield
     root.handlers = original_handlers
     root.setLevel(original_level)
@@ -116,3 +114,17 @@ class TestConfigureLogging:
         count_after_first = len(logging.getLogger().handlers)
         configure_logging()
         assert len(logging.getLogger().handlers) == count_after_first
+
+    def test_invalid_log_level_raises_value_error(self, monkeypatch):
+        """An unrecognised LOG_LEVEL value must raise ValueError at startup."""
+        monkeypatch.setenv("LOG_LEVEL", "BOGUS")
+        with pytest.raises(ValueError, match="Invalid LOG_LEVEL"):
+            configure_logging()
+
+    def test_json_contains_asctime(self):
+        """JSON output must include an 'asctime' timestamp field."""
+        stream = io.StringIO()
+        configure_logging(stream=stream)
+        logging.getLogger("test.ts").info("ts check")
+        parsed = json.loads(stream.getvalue().strip())
+        assert "asctime" in parsed
