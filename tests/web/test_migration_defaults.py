@@ -10,10 +10,10 @@ class TestAttributeLabelDefaults:
     @pytest.mark.parametrize(
         "value_type,expected_slugs",
         [
-            ("email", {"work", "home", "personal"}),
+            ("email", {"work", "personal"}),
             ("phone", {"work", "home", "mobile", "personal"}),
             ("url", {"website", "blog", "work"}),
-            ("platform_url", {"website", "blog", "work"}),
+            ("platform_url", {"work", "personal"}),
             ("location", {"home", "work", "current", "previous", "mailing"}),
         ],
     )

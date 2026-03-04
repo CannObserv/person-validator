@@ -5,8 +5,7 @@ from django.db import migrations
 DEFAULT_LABELS = [
     # (value_type, slug, display, sort_order)
     ("email", "work", "Work", 0),
-    ("email", "home", "Home", 1),
-    ("email", "personal", "Personal", 2),
+    ("email", "personal", "Personal", 1),
     ("phone", "work", "Work", 0),
     ("phone", "home", "Home", 1),
     ("phone", "mobile", "Mobile", 2),
@@ -14,9 +13,8 @@ DEFAULT_LABELS = [
     ("url", "website", "Website", 0),
     ("url", "blog", "Blog", 1),
     ("url", "work", "Work", 2),
-    ("platform_url", "website", "Website", 0),
-    ("platform_url", "blog", "Blog", 1),
-    ("platform_url", "work", "Work", 2),
+    ("platform_url", "work", "Work", 0),
+    ("platform_url", "personal", "Personal", 1),
     ("location", "home", "Home", 0),
     ("location", "work", "Work", 1),
     ("location", "current", "Current", 2),
