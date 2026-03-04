@@ -2,9 +2,10 @@
 
 import logging
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from src.core.enrichment.attribute_types import (
+    LABELABLE_TYPES,
     AttributeValue,
     LocationAttributeValue,
     PlatformUrlAttributeValue,
@@ -19,8 +20,8 @@ from src.core.enrichment.registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
-# Value types whose metadata may carry a "label" list.
-_LABELABLE_TYPES = {"email", "phone", "url", "platform_url", "location"}
+# Module-level adapter — TypeAdapter construction is non-trivial; build once.
+_attribute_value_adapter = TypeAdapter(AttributeValue)
 
 
 def _load_active_labels(value_type: str) -> set[str]:
@@ -54,10 +55,7 @@ def _validate_result(result: EnrichmentResult) -> AttributeValue | None:
     if result.metadata:
         payload.update(result.metadata)
     try:
-        from pydantic import TypeAdapter  # noqa: PLC0415
-
-        adapter = TypeAdapter(AttributeValue)
-        return adapter.validate_python(payload)
+        return _attribute_value_adapter.validate_python(payload)
     except ValidationError as exc:
         logger.warning("Attribute validation failed: %s", exc)
         return None
@@ -67,6 +65,7 @@ def _strip_invalid_labels(
     validated: AttributeValue,
     provider_name: str,
     key: str,
+    active_labels: set[str],
     warnings: list[EnrichmentWarning],
 ) -> list[str]:
     """Strip unknown label slugs and record a warning per stripped slug.
@@ -77,10 +76,9 @@ def _strip_invalid_labels(
     if not raw_labels:
         return []
 
-    active = _load_active_labels(validated.type)
     clean: list[str] = []
     for slug in raw_labels:
-        if slug in active:
+        if slug in active_labels:
             clean.append(slug)
         else:
             msg = f"Unknown label '{slug}' for value_type '{validated.type}' — stripped"
@@ -93,13 +91,13 @@ def _strip_invalid_platform(
     validated: PlatformUrlAttributeValue,
     provider_name: str,
     key: str,
+    active_platforms: set[str],
     warnings: list[EnrichmentWarning],
 ) -> str | None:
     """Strip unknown platform slug and record a warning. Returns cleaned value."""
     if validated.platform is None:
         return None
-    active = _load_active_platforms()
-    if validated.platform in active:
+    if validated.platform in active_platforms:
         return validated.platform
     msg = f"Unknown platform '{validated.platform}' for platform_url — platform field cleared"
     logger.warning("[%s/%s] %s", provider_name, key, msg)
@@ -107,7 +105,11 @@ def _strip_invalid_platform(
     return None
 
 
-def _build_metadata(validated: AttributeValue, clean_labels: list[str]) -> dict | None:
+def _build_metadata(
+    validated: AttributeValue,
+    clean_labels: list[str],
+    clean_platform: str | None = None,
+) -> dict | None:
     """Build the metadata dict to persist for a validated attribute."""
     meta: dict = {}
 
@@ -115,23 +117,14 @@ def _build_metadata(validated: AttributeValue, clean_labels: list[str]) -> dict 
         meta["label"] = clean_labels
 
     if isinstance(validated, PlatformUrlAttributeValue):
-        if validated.platform is not None:
-            meta["platform"] = validated.platform
+        if clean_platform is not None:
+            meta["platform"] = clean_platform
 
     elif isinstance(validated, LocationAttributeValue):
-        for field_name in (
-            "address_line_1",
-            "address_line_2",
-            "city",
-            "region",
-            "postal_code",
-            "country",
-            "standardized",
-            "components",
-        ):
-            val = getattr(validated, field_name)
-            if val is not None:
-                meta[field_name] = val
+        # Derive location metadata fields dynamically from the model to avoid
+        # manual field list maintenance.
+        location_fields = validated.model_dump(exclude={"type", "value", "label", "confidence"})
+        meta.update({k: v for k, v in location_fields.items() if v is not None})
 
     return meta or None
 
@@ -142,20 +135,18 @@ def _persist_attribute(
     result: EnrichmentResult,
     validated: AttributeValue,
     clean_labels: list[str],
-    warnings: list[EnrichmentWarning],
+    clean_platform: str | None = None,
 ) -> None:
     """Persist a single validated EnrichmentResult to the database."""
-    from src.web.persons.models import Person, PersonAttribute  # noqa: PLC0415
+    from src.web.persons.models import PersonAttribute  # noqa: PLC0415
 
-    # For platform_url: re-strip platform after label stripping pass (platform
-    # stripping already happened; read it back from validated)
-    meta = _build_metadata(validated, clean_labels)
+    meta = _build_metadata(validated, clean_labels, clean_platform)
 
-    # Coerce AnyUrl to string for storage
+    # Coerce AnyUrl to string for storage.
     value_str = str(validated.value)
 
     PersonAttribute.objects.create(
-        person=Person(pk=person_id),
+        person_id=person_id,
         source=provider_name,
         key=result.key,
         value=value_str,
@@ -187,6 +178,10 @@ class EnrichmentRunner:
         """
         run_result = EnrichmentRunResult(person_id=person.id)
 
+        # Load vocab sets once per run to avoid per-attribute DB queries.
+        label_cache: dict[str, set[str]] = {vt: _load_active_labels(vt) for vt in LABELABLE_TYPES}
+        platform_cache: set[str] = _load_active_platforms()
+
         for provider in self._registry.enabled_providers():
             try:
                 results = provider.enrich(person)
@@ -205,20 +200,27 @@ class EnrichmentRunner:
                     run_result.attributes_skipped += 1
                     continue
 
-                # Strip unknown labels
+                # Strip unknown labels using the pre-loaded cache.
                 clean_labels: list[str] = []
-                if result.value_type in _LABELABLE_TYPES:
+                if result.value_type in LABELABLE_TYPES:
                     clean_labels = _strip_invalid_labels(
-                        validated, provider.name, result.key, run_result.warnings
+                        validated,
+                        provider.name,
+                        result.key,
+                        label_cache[result.value_type],
+                        run_result.warnings,
                     )
 
-                # Strip unknown platform
+                # Strip unknown platform using the pre-loaded cache.
+                clean_platform: str | None = None
                 if isinstance(validated, PlatformUrlAttributeValue):
                     clean_platform = _strip_invalid_platform(
-                        validated, provider.name, result.key, run_result.warnings
+                        validated,
+                        provider.name,
+                        result.key,
+                        platform_cache,
+                        run_result.warnings,
                     )
-                    # Mutate platform on the validated model so _persist reads it
-                    object.__setattr__(validated, "platform", clean_platform)
 
                 try:
                     _persist_attribute(
@@ -227,7 +229,7 @@ class EnrichmentRunner:
                         result,
                         validated,
                         clean_labels,
-                        run_result.warnings,
+                        clean_platform,
                     )
                     run_result.attributes_saved += 1
                 except Exception:  # noqa: BLE001

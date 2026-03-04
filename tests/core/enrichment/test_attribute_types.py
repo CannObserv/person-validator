@@ -224,6 +224,43 @@ class TestDateAttributeValue:
         with pytest.raises(ValidationError):
             _adapter.validate_python({"type": "date", "value": "1990-06", "confidence": 0.95})
 
+    def test_invalid_calendar_date_rejected(self):
+        """Pattern match alone is not enough — calendar validity is also checked."""
+        with pytest.raises(ValidationError):
+            _adapter.validate_python({"type": "date", "value": "9999-99-99", "confidence": 0.95})
+
+    def test_invalid_leap_day_rejected(self):
+        """Feb 29 on a non-leap year is rejected."""
+        with pytest.raises(ValidationError):
+            _adapter.validate_python({"type": "date", "value": "2023-02-29", "confidence": 0.95})
+
+    def test_valid_leap_day_accepted(self):
+        """Feb 29 on a real leap year is accepted."""
+        m = _adapter.validate_python({"type": "date", "value": "2024-02-29", "confidence": 0.95})
+        assert m.value == "2024-02-29"
+
+
+class TestVocabularyConstants:
+    """Tests for module-level vocabulary constants."""
+
+    def test_value_type_choices_contains_all_types(self):
+        from src.core.enrichment.attribute_types import VALUE_TYPE_CHOICES
+
+        slugs = {slug for slug, _ in VALUE_TYPE_CHOICES}
+        assert slugs == {"text", "email", "phone", "url", "platform_url", "location", "date"}
+
+    def test_labelable_types_is_subset_of_value_types(self):
+        from src.core.enrichment.attribute_types import LABELABLE_TYPES, VALUE_TYPE_CHOICES
+
+        all_types = {slug for slug, _ in VALUE_TYPE_CHOICES}
+        assert LABELABLE_TYPES.issubset(all_types)
+
+    def test_labelable_types_does_not_include_text_or_date(self):
+        from src.core.enrichment.attribute_types import LABELABLE_TYPES
+
+        assert "text" not in LABELABLE_TYPES
+        assert "date" not in LABELABLE_TYPES
+
 
 class TestDiscriminatedUnion:
     """Tests for the discriminated union dispatch."""

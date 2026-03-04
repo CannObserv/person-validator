@@ -54,7 +54,13 @@ class PersonAdmin(admin.ModelAdmin):
 
 @admin.register(PersonAttribute)
 class PersonAttributeAdmin(admin.ModelAdmin):
-    """Standalone admin for PersonAttribute with filtering by type and source."""
+    """Standalone admin for PersonAttribute with filtering by type and source.
+
+    PersonAttribute is intentionally registered both here (for cross-person
+    querying and filtering) and as a read-only inline on PersonAdmin (for
+    contextual display within a single person record). The two registrations
+    serve different purposes and are both intentional.
+    """
 
     list_display = ("person", "source", "key", "value", "value_type", "confidence", "created_at")
     list_filter = ("source", "key", "value_type")

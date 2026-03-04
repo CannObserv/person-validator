@@ -1,9 +1,13 @@
 """Person, PersonName, PersonAttribute, AttributeLabel, and SocialPlatform models."""
 
+# VALUE_TYPE_CHOICES is defined in src/core/enrichment/attribute_types.py and
+# imported here so the canonical list lives in one place.
+
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
+from src.core.enrichment.attribute_types import VALUE_TYPE_CHOICES
 from src.core.fields import ULIDField
 
 NAME_TYPE_CHOICES = [
@@ -106,17 +110,6 @@ class PersonName(models.Model):
             surname=self.surname,
             updated_at=timezone.now(),
         )
-
-
-VALUE_TYPE_CHOICES = [
-    ("text", "Text"),
-    ("email", "Email"),
-    ("phone", "Phone"),
-    ("url", "URL"),
-    ("platform_url", "Platform URL"),
-    ("location", "Location"),
-    ("date", "Date"),
-]
 
 
 class AttributeLabel(models.Model):

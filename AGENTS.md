@@ -41,15 +41,21 @@ person-validator/
 │   │   ├── fields.py         # ULIDField
 │   │   ├── key_validation.py # Single-sourced API key validation (raw SQL)
 │   │   ├── matching.py       # Name search (raw SQL); search(conn, variants) batch query
-│   │   └── pipeline/         # Name normalization pipeline framework
-│   │       ├── __init__.py   # Public re-exports (Pipeline, Stage, PipelineResult, …)
-│   │       ├── base.py       # PipelineResult dataclass, Stage ABC, Pipeline runner
-│   │       ├── registry.py   # StageRegistry — config-driven pipeline assembly
-│   │       └── stages.py     # Concrete stages (BasicNormalization)
+│   │   ├── pipeline/         # Name normalization pipeline framework
+│   │   │   ├── __init__.py   # Public re-exports (Pipeline, Stage, PipelineResult, …)
+│   │   │   ├── base.py       # PipelineResult dataclass, Stage ABC, Pipeline runner
+│   │   │   ├── registry.py   # StageRegistry — config-driven pipeline assembly
+│   │   │   └── stages.py     # Concrete stages (BasicNormalization)
+│   │   └── enrichment/       # Enrichment provider framework
+│   │       ├── __init__.py   # Public re-exports (all types, Provider, EnrichmentRunner, …)
+│   │       ├── attribute_types.py  # Pydantic discriminated union; VALUE_TYPE_CHOICES, LABELABLE_TYPES
+│   │       ├── base.py       # Provider ABC, EnrichmentResult, EnrichmentWarning, EnrichmentRunResult
+│   │       ├── registry.py   # ProviderRegistry — register/enable/disable providers
+│   │       └── runner.py     # EnrichmentRunner — validate, strip labels/platforms, persist
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend
-│       ├── persons/          # Person + PersonName models & admin
+│       ├── persons/          # Person, PersonName, PersonAttribute, AttributeLabel, SocialPlatform
 │       └── keys/             # API key model & admin management
 ├── tests/                    # Test suite (mirrors src/ structure)
 │   ├── api/                  # FastAPI tests
@@ -96,8 +102,16 @@ OR-expanded clause for (given, surname) pair matches.
 |---|---|---|
 | `persons_person` | persons | Identity anchor, denormalized primary name |
 | `persons_personname` | persons | All name variants for a person |
-| `persons_personattribute` | persons | Enrichment data (append-only EAV) |
+| `persons_personattribute` | persons | Enrichment data (append-only EAV); `value_type` (indexed) + `metadata` (JSONField) |
+| `persons_attributelabel` | persons | Controlled label vocabulary per `value_type` (e.g. "work", "home") |
+| `persons_socialplatform` | persons | Controlled platform vocabulary for `platform_url` attributes |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
+
+**`PersonAttribute.value_type` values:** `text`, `email`, `phone`, `url`, `platform_url`, `location`, `date`.
+Defined in `src/core/enrichment/attribute_types.VALUE_TYPE_CHOICES` (imported by `models.py`).
+
+**Labelable types** (`metadata["label"]` supported): `email`, `phone`, `url`, `platform_url`, `location`.
+Defined in `src/core/enrichment/attribute_types.LABELABLE_TYPES`.
 
 ### Services
 

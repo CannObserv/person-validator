@@ -1,31 +1,48 @@
-"""Pydantic v2 discriminated union for typed enrichment attribute values."""
+"""Pydantic v2 discriminated union for typed enrichment attribute values.
 
+Also exports the canonical VALUE_TYPE_CHOICES list (used by Django models)
+and LABELABLE_TYPES set (used by the runner) so both are single-sourced here.
+"""
+
+import datetime
 from typing import Annotated, Literal
 
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import AnyUrl, BaseModel, Field, field_validator
+
+# Canonical list of value types — imported by Django models for choices.
+VALUE_TYPE_CHOICES = [
+    ("text", "Text"),
+    ("email", "Email"),
+    ("phone", "Phone"),
+    ("url", "URL"),
+    ("platform_url", "Platform URL"),
+    ("location", "Location"),
+    ("date", "Date"),
+]
+
+# Value types whose metadata may carry a "label" list.
+# Must stay in sync with VALUE_TYPE_CHOICES and the models that define label fields.
+LABELABLE_TYPES: frozenset[str] = frozenset({"email", "phone", "url", "platform_url", "location"})
 
 
 class EmailAttributeValue(BaseModel):
     """Typed model for email attributes."""
 
     type: Literal["email"]
-    value: str  # validated as email format via regex
+    value: str
     label: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
 
+    @field_validator("value")
     @classmethod
     def validate_email_format(cls, v: str) -> str:
-        """Validate basic email format."""
+        """Validate basic email format (local@domain.tld)."""
         if "@" not in v or v.count("@") != 1:
             raise ValueError(f"Invalid email address: {v!r}")
         local, domain = v.split("@")
         if not local or not domain or "." not in domain:
             raise ValueError(f"Invalid email address: {v!r}")
         return v
-
-    def model_post_init(self, __context) -> None:  # noqa: ANN001
-        """Run post-init email validation."""
-        self.validate_email_format(self.value)
 
 
 class PhoneAttributeValue(BaseModel):
@@ -88,11 +105,21 @@ class TextAttributeValue(BaseModel):
 
 
 class DateAttributeValue(BaseModel):
-    """Typed model for date attributes. Value must be ISO 8601 YYYY-MM-DD."""
+    """Typed model for date attributes. Value must be a valid ISO 8601 calendar date."""
 
     type: Literal["date"]
     value: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     confidence: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("value")
+    @classmethod
+    def validate_calendar_date(cls, v: str) -> str:
+        """Ensure the value is a valid calendar date, not just a formatted string."""
+        try:
+            datetime.date.fromisoformat(v)
+        except ValueError:
+            raise ValueError(f"Invalid calendar date: {v!r}")
+        return v
 
 
 AttributeValue = Annotated[

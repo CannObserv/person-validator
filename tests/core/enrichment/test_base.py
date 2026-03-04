@@ -1,4 +1,4 @@
-"""Tests for base enrichment dataclasses and Provider ABC."""
+"""Tests for base enrichment dataclasses, Provider ABC, and package exports."""
 
 import pytest
 
@@ -108,3 +108,41 @@ class TestProviderABC:
 
         p = GoodProvider()
         assert p.enrich(PersonData(id="x", name="Alice")) == []
+
+
+class TestPackageExports:
+    """Confirm all documented names are importable from the top-level package."""
+
+    def test_attribute_value_exported(self):
+        from src.core.enrichment import AttributeValue  # noqa: F401
+
+    def test_concrete_types_exported(self):
+        from src.core.enrichment import (
+            DateAttributeValue,
+            EmailAttributeValue,
+            LocationAttributeValue,
+            PhoneAttributeValue,
+            PlatformUrlAttributeValue,
+            TextAttributeValue,
+            UrlAttributeValue,
+        )
+
+        assert EmailAttributeValue is not None
+        assert PhoneAttributeValue is not None
+        assert UrlAttributeValue is not None
+        assert PlatformUrlAttributeValue is not None
+        assert LocationAttributeValue is not None
+        assert TextAttributeValue is not None
+        assert DateAttributeValue is not None
+
+    def test_vocabulary_constants_exported(self):
+        from src.core.enrichment import LABELABLE_TYPES, VALUE_TYPE_CHOICES
+
+        assert isinstance(VALUE_TYPE_CHOICES, list)
+        assert isinstance(LABELABLE_TYPES, frozenset)
+
+    def test_runner_and_registry_exported(self):
+        from src.core.enrichment import EnrichmentRunner, ProviderRegistry
+
+        assert EnrichmentRunner is not None
+        assert ProviderRegistry is not None
