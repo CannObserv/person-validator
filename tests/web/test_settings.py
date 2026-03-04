@@ -2,10 +2,7 @@
 
 import pytest
 from django.conf import settings
-from django.db import IntegrityError, connection
-from ulid import ULID
-
-from src.web.persons.models import PersonAttribute
+from django.db import connection
 
 
 class TestTimezoneSettings:
@@ -30,13 +27,3 @@ class TestForeignKeyEnforcement:
             cursor.execute("PRAGMA foreign_keys")
             row = cursor.fetchone()
         assert row[0] == 1
-
-    def test_fk_violation_raises_integrity_error(self):
-        """Inserting a PersonAttribute with a non-existent person_id raises IntegrityError."""
-        bogus_person_id = str(ULID())
-        with pytest.raises(IntegrityError):
-            PersonAttribute.objects.create(
-                person_id=bogus_person_id,
-                value_type="text",
-                value="hello",
-            )

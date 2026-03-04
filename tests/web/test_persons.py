@@ -6,6 +6,7 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
 from django.utils import timezone
+from ulid import ULID
 
 from src.core.fields import ULIDField
 from src.web.persons.models import NAME_TYPE_CHOICES, Person, PersonAttribute, PersonName
@@ -634,3 +635,18 @@ class TestPersonAttribute:
             person=person, source="t", key="x", value="y", confidence=1.0
         )
         assert attr.updated_at is not None
+
+
+@pytest.mark.django_db
+class TestForeignKeyEnforcement:
+    """Verify that FK constraints are enforced at the DB level for PersonAttribute."""
+
+    def test_fk_violation_raises_integrity_error(self):
+        """Inserting a PersonAttribute with a non-existent person_id raises IntegrityError."""
+        bogus_person_id = str(ULID())
+        with pytest.raises(IntegrityError):
+            PersonAttribute.objects.create(
+                person_id=bogus_person_id,
+                value_type="text",
+                value="hello",
+            )

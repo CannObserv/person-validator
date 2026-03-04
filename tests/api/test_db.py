@@ -72,11 +72,11 @@ class TestGetConnection:
         finally:
             del os.environ["DATABASE_PATH"]
 
-    def test_fk_violation_raises_integrity_error(self, migrated_db):
+    def test_fk_violation_raises_integrity_error(self, tmp_db):
         """Inserting a PersonAttribute with a non-existent person_id raises IntegrityError."""
-        os.environ["DATABASE_PATH"] = str(migrated_db)
+        os.environ["DATABASE_PATH"] = str(tmp_db)
+        conn = get_connection()
         try:
-            conn = get_connection()
             bogus_person_id = str(ULID())
             attr_id = str(ULID())
             with pytest.raises(sqlite3.IntegrityError):
@@ -87,6 +87,6 @@ class TestGetConnection:
                     (attr_id, bogus_person_id),
                 )
                 conn.commit()
-            conn.close()
         finally:
+            conn.close()
             del os.environ["DATABASE_PATH"]
