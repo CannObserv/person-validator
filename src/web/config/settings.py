@@ -1,5 +1,6 @@
 """Django settings for Person Validator."""
 
+import logging
 import os
 from pathlib import Path
 
@@ -101,6 +102,57 @@ STORAGES = {
 # Internationalization & time zones
 TIME_ZONE = "UTC"
 USE_TZ = True
+
+# Logging — JSON to console, level from LOG_LEVEL env var (default INFO)
+_LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+
+from pythonjsonlogger import json as _jsonlogger  # noqa: E402
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {
+            "()": _jsonlogger.JsonFormatter,
+            "fmt": "%(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+            "stream": "ext://sys.stderr",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": _LOG_LEVEL,
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": _LOG_LEVEL,
+            "propagate": False,
+        },
+        "django.security": {
+            "handlers": ["console"],
+            "level": _LOG_LEVEL,
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["console"],
+            # DB query logging is noisy; silence below WARNING unless overridden.
+            "level": max(logging.getLevelName(_LOG_LEVEL), logging.WARNING),
+            "propagate": False,
+        },
+        "src": {
+            "handlers": ["console"],
+            "level": _LOG_LEVEL,
+            "propagate": False,
+        },
+    },
+}
 
 # exe.dev proxy settings
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

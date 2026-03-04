@@ -1,5 +1,6 @@
 """Tests for FastAPI app factory and basic configuration."""
 
+import logging
 import os
 
 import pytest
@@ -39,6 +40,37 @@ class TestAppFactory:
             assert "/health" in paths
         finally:
             del os.environ["DATABASE_PATH"]
+
+
+class TestLoggingConfiguration:
+    """Verify that create_app() installs JSON logging."""
+
+    def test_create_app_configures_root_handler(self, tmp_db):
+        """create_app() must attach at least one handler to the root logger."""
+        # Clear handlers first to make the assertion meaningful.
+        root = logging.getLogger()
+        original_handlers = root.handlers[:]
+        root.handlers = []
+        os.environ["DATABASE_PATH"] = str(tmp_db)
+        try:
+            create_app()
+            assert len(root.handlers) >= 1
+        finally:
+            del os.environ["DATABASE_PATH"]
+            root.handlers = original_handlers
+
+    def test_create_app_handler_is_stream_handler(self, tmp_db):
+        """The handler installed by create_app() must be a StreamHandler."""
+        root = logging.getLogger()
+        original_handlers = root.handlers[:]
+        root.handlers = []
+        os.environ["DATABASE_PATH"] = str(tmp_db)
+        try:
+            create_app()
+            assert any(isinstance(h, logging.StreamHandler) for h in root.handlers)
+        finally:
+            del os.environ["DATABASE_PATH"]
+            root.handlers = original_handlers
 
 
 @pytest.mark.anyio

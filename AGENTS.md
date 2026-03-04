@@ -279,6 +279,34 @@ If a playbook name exists in both files, the project-level definition takes prec
 
 ## Conventions
 
+### Logging
+
+All log output is **JSON** (via `python-json-logger`). Both services share a
+single `LOG_LEVEL` environment variable (default `INFO`).
+
+**In every module** — obtain a logger at module level, never inside functions:
+
+```python
+from src.core.logging import get_logger
+
+logger = get_logger(__name__)
+```
+
+**At entry points only** (FastAPI app factory, Django `AppConfig.ready()`,
+management commands) — call `configure_logging()` once:
+
+```python
+from src.core.logging import configure_logging
+
+configure_logging()  # idempotent; safe to call multiple times
+```
+
+Do **not** call `configure_logging()` in library/utility modules.
+
+Django's `LOGGING` dict (in `settings.py`) wires the `django`, `django.request`,
+`django.security`, `django.db.backends`, and `src` loggers to the JSON console
+handler. FastAPI wires the same via `configure_logging()` in `create_app()`.
+
 ### Date & Time
 
 - **All timestamps are stored in UTC.** Django settings enforce `USE_TZ = True`

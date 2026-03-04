@@ -4,10 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import health_router, v1_router
+from src.core.logging import configure_logging
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    configure_logging()
+
     app = FastAPI(
         title="Person Validator API",
         version="0.1.0",
