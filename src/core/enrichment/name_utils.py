@@ -30,7 +30,7 @@ _NON_LATIN_RANGES: list[tuple[int, int]] = [
     (0x20000, 0x2A6DF),  # CJK Extension B
 ]
 
-_PERIOD_INITIALS_RE = re.compile(r"^(?:[A-Z]\.)+$")
+_PERIOD_INITIALS_RE = re.compile(r"^(?:[A-Za-z]\.)+$")
 
 
 def _has_non_latin_chars(text: str) -> bool:
@@ -87,7 +87,7 @@ def infer_name_type(full_name: str, primary_name: str | None) -> str:
     if _PERIOD_INITIALS_RE.match(no_space):
         return "abbreviation"
     if (
-        len(stripped) <= 6
+        3 <= len(stripped) <= 6
         and stripped.upper() == stripped
         and stripped.replace(" ", "").isalpha()
         and not _has_non_latin_chars(stripped)

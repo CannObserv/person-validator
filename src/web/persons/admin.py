@@ -54,6 +54,49 @@ class PersonAdmin(admin.ModelAdmin):
     inlines = [PersonNameInline, PersonAttributeInline]
 
 
+@admin.register(PersonName)
+class PersonNameAdmin(admin.ModelAdmin):
+    """Standalone admin for PersonName — useful for inspecting enrichment-created names.
+
+    PersonName records are also accessible as an inline on PersonAdmin (for
+    contextual display within a single person record). Both registrations are
+    intentional and serve different purposes.
+    """
+
+    list_display = (
+        "person",
+        "full_name",
+        "name_type",
+        "confidence",
+        "is_primary",
+        "source",
+        "created_at",
+    )
+    list_filter = ("name_type", "source", "is_primary")
+    search_fields = ("person__name", "full_name", "source")
+    readonly_fields = ("id", "created_at", "updated_at")
+    fields = (
+        "id",
+        "person",
+        "name_type",
+        "full_name",
+        "given_name",
+        "middle_name",
+        "surname",
+        "prefix",
+        "suffix",
+        "is_primary",
+        "source",
+        "confidence",
+        "provenance",
+        "effective_date",
+        "end_date",
+        "notes",
+        "created_at",
+        "updated_at",
+    )
+
+
 @admin.register(PersonAttribute)
 class PersonAttributeAdmin(admin.ModelAdmin):
     """Standalone admin for PersonAttribute with filtering by type and source.

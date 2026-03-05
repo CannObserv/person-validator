@@ -22,6 +22,7 @@ from src.core.enrichment.base import (
     PersonData,
     Provider,
 )
+from src.core.enrichment.name_utils import infer_name_type
 from src.core.enrichment.registry import ProviderRegistry
 from src.core.enrichment.runner import EnrichmentRunner
 
@@ -43,6 +44,8 @@ __all__ = [
     "EnrichmentWarning",
     "PersonData",
     "Provider",
+    # Name utilities
+    "infer_name_type",
     # Registry & runner
     "ProviderRegistry",
     "EnrichmentRunner",

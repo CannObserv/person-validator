@@ -62,3 +62,37 @@ class TestInferNameType:
     def test_primary_name_none_treated_as_latin(self):
         """When primary_name is None, non-Latin name returns 'transliteration'."""
         assert infer_name_type("\u062c\u0648\u0631\u062c", None) == "transliteration"
+
+    # --- abbreviation minimum-length boundary (finding #2) ---
+
+    def test_single_char_allcaps_returns_alias(self):
+        """Single all-caps character is too short to be an abbreviation (< 3 chars)."""
+        assert infer_name_type("A", "Alice") == "alias"
+
+    def test_two_char_allcaps_returns_alias(self):
+        """Two-char all-caps string is too short to be an abbreviation."""
+        assert infer_name_type("ED", "Edward Jones") == "alias"
+
+    def test_three_char_allcaps_returns_abbreviation(self):
+        """3-char all-caps string is the minimum for abbreviation."""
+        assert infer_name_type("JFK", "John F. Kennedy") == "abbreviation"
+
+    # --- lowercase initials (finding #3) ---
+
+    def test_lowercase_period_initials_returns_abbreviation(self):
+        """Lowercase period-separated initials are treated as abbreviations."""
+        assert infer_name_type("j.f.k.", "John F. Kennedy") == "abbreviation"
+
+    def test_mixed_case_period_initials_returns_abbreviation(self):
+        """Mixed-case period-separated initials are treated as abbreviations."""
+        assert infer_name_type("J.f.K.", "John f. Kennedy") == "abbreviation"
+
+    # --- empty / whitespace edge cases (finding #6) ---
+
+    def test_empty_string_returns_alias(self):
+        """Empty string returns 'alias' (no rules fire; conservative default)."""
+        assert infer_name_type("", "George Washington") == "alias"
+
+    def test_whitespace_only_returns_alias(self):
+        """Whitespace-only string returns 'alias' after stripping."""
+        assert infer_name_type("   ", "George Washington") == "alias"

@@ -133,9 +133,9 @@ class TestPersonAdminIntegration:
         """Person model is registered in the admin site."""
         assert Person in admin_site._registry
 
-    def test_person_name_not_registered_standalone(self):
-        """PersonName should only be available as inline, not standalone."""
-        assert PersonName not in admin_site._registry
+    def test_person_name_registered_standalone(self):
+        """PersonName is registered standalone for cross-person enrichment inspection."""
+        assert PersonName in admin_site._registry
 
     def test_attribute_label_registered_in_admin(self):
         """AttributeLabel model is registered in the admin site."""
