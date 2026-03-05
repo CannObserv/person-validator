@@ -171,3 +171,7 @@ class EnrichmentRunAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         """Prevent editing of audit log entries."""
         return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
+        """Prevent deletion of audit log entries."""
+        return False

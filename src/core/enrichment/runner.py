@@ -1,7 +1,6 @@
 """Enrichment runner: orchestrates providers, validates results, persists attributes."""
 
-import logging
-
+from django.utils import timezone
 from pydantic import TypeAdapter, ValidationError
 
 from src.core.enrichment.attribute_types import (
@@ -17,8 +16,13 @@ from src.core.enrichment.base import (
     PersonData,
 )
 from src.core.enrichment.registry import ProviderRegistry
+from src.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+# NOTE: src.web.persons.models imports src.core.enrichment (for VALUE_TYPE_CHOICES),
+# creating a circular dependency at module level. All imports of Django models in this
+# module use deferred inline imports inside functions to break the cycle.
+
+logger = get_logger(__name__)
 
 # Module-level adapter — TypeAdapter construction is non-trivial; build once.
 _attribute_value_adapter = TypeAdapter(AttributeValue)
@@ -26,7 +30,7 @@ _attribute_value_adapter = TypeAdapter(AttributeValue)
 
 def _load_active_labels(value_type: str) -> set[str]:
     """Return the set of active label slugs for *value_type* from the DB."""
-    from src.web.persons.models import AttributeLabel  # noqa: PLC0415
+    from src.web.persons.models import AttributeLabel  # noqa: PLC0415 (circular — see module note)
 
     return set(
         AttributeLabel.objects.filter(value_type=value_type, is_active=True).values_list(
@@ -37,7 +41,9 @@ def _load_active_labels(value_type: str) -> set[str]:
 
 def _load_active_platforms() -> set[str]:
     """Return the set of active external platform slugs from the DB."""
-    from src.web.persons.models import ExternalPlatform  # noqa: PLC0415
+    from src.web.persons.models import (
+        ExternalPlatform,  # noqa: PLC0415 (circular — see module note)
+    )
 
     return set(ExternalPlatform.objects.filter(is_active=True).values_list("slug", flat=True))
 
@@ -138,7 +144,7 @@ def _persist_attribute(
     clean_platform: str | None = None,
 ) -> None:
     """Persist a single validated EnrichmentResult to the database."""
-    from src.web.persons.models import PersonAttribute  # noqa: PLC0415
+    from src.web.persons.models import PersonAttribute  # noqa: PLC0415 (circular — see module note)
 
     meta = _build_metadata(validated, clean_labels, clean_platform)
 
@@ -177,9 +183,9 @@ class EnrichmentRunner:
         - Unknown platform slugs are stripped with a warning.
         - An EnrichmentRun audit record is created and updated per provider.
         """
-        from django.utils import timezone  # noqa: PLC0415
-
-        from src.web.persons.models import EnrichmentRun  # noqa: PLC0415
+        from src.web.persons.models import (
+            EnrichmentRun,  # noqa: PLC0415 (circular — see module note)
+        )
 
         run_result = EnrichmentRunResult(person_id=person.id)
 
@@ -188,19 +194,20 @@ class EnrichmentRunner:
         platform_cache: set[str] = _load_active_platforms()
 
         for provider in self._registry.enabled_providers():
-            db_run = EnrichmentRun.objects.create(
-                person_id=person.id,
-                provider=provider.name,
-                status="running",
-                triggered_by=triggered_by,
-                started_at=timezone.now(),
-            )
-
             provider_saved = 0
             provider_skipped = 0
             provider_warnings: list[EnrichmentWarning] = []
+            db_run: EnrichmentRun | None = None
 
             try:
+                db_run = EnrichmentRun.objects.create(
+                    person_id=person.id,
+                    provider=provider.name,
+                    status="running",
+                    triggered_by=triggered_by,
+                    started_at=timezone.now(),
+                )
+
                 results = provider.enrich(person)
 
                 for result in results:
@@ -261,12 +268,14 @@ class EnrichmentRunner:
 
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Provider '%s' raised an exception", provider.name)
-                db_run.status = "failed"
-                db_run.error = str(exc)
+                if db_run is not None:
+                    db_run.status = "failed"
+                    db_run.error = str(exc)
 
             finally:
-                db_run.completed_at = timezone.now()
-                db_run.save()
+                if db_run is not None:
+                    db_run.completed_at = timezone.now()
+                    db_run.save()
 
             run_result.attributes_saved += provider_saved
             run_result.attributes_skipped += provider_skipped

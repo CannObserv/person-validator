@@ -6,28 +6,9 @@ from django.utils import timezone
 from src.core.enrichment.base import EnrichmentResult, PersonData, Provider
 from src.core.enrichment.registry import ProviderRegistry
 from src.core.enrichment.runner import EnrichmentRunner
-
-
-def _make_person(**kwargs) -> PersonData:
-    defaults = {"id": "01TESTPERSON000000000000001", "name": "Alice Smith"}
-    defaults.update(kwargs)
-    return PersonData(**defaults)
-
-
-def _make_provider(name: str, results: list[EnrichmentResult]) -> Provider:
-    class _P(Provider):
-        def enrich(self, person: PersonData) -> list[EnrichmentResult]:
-            return results
-
-    _P.name = name
-    return _P()
-
-
-def _make_registry(*providers: Provider) -> ProviderRegistry:
-    reg = ProviderRegistry()
-    for p in providers:
-        reg.register(p)
-    return reg
+from tests.conftest import make_person as _make_person
+from tests.conftest import make_provider as _make_provider
+from tests.conftest import make_registry as _make_registry
 
 
 @pytest.mark.django_db
@@ -317,6 +298,33 @@ class TestRunnerCreatesEnrichmentRunRecords:
 
         assert EnrichmentRun.objects.filter(person=person).count() == 0
 
+    def test_run_record_create_failure_does_not_raise_unbound_local_error(self, monkeypatch):
+        """If EnrichmentRun.objects.create raises, run() completes without UnboundLocalError.
+
+        Previously db_run could be unbound in the finally block, masking
+        the real exception with UnboundLocalError. The outer BLE001 handler
+        absorbs the create failure gracefully so other providers still run.
+        """
+        from unittest.mock import patch
+
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="Alice Smith")
+        provider = _make_provider(
+            "test_provider",
+            [EnrichmentResult(key="employer", value="Acme", value_type="text", confidence=0.9)],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+
+        with patch(
+            "src.web.persons.models.EnrichmentRun.objects.create",
+            side_effect=RuntimeError("db down"),
+        ):
+            # Must not raise — especially not UnboundLocalError.
+            result = runner.run(_make_person(id=person.pk))
+
+        assert result is not None
+
 
 @pytest.mark.django_db
 class TestEnrichmentRunAdmin:
@@ -397,3 +405,33 @@ class TestEnrichmentRunAdmin:
         }
         for field in expected_fields:
             assert field in readonly, f"Field not readonly: {field}"
+
+    def test_add_not_permitted(self):
+        """has_add_permission returns False — audit log is append-only via code."""
+        from django.contrib.admin.sites import AdminSite
+
+        from src.web.persons.admin import EnrichmentRunAdmin
+        from src.web.persons.models import EnrichmentRun
+
+        admin_instance = EnrichmentRunAdmin(EnrichmentRun, AdminSite())
+        assert admin_instance.has_add_permission(None) is False
+
+    def test_change_not_permitted(self):
+        """has_change_permission returns False."""
+        from django.contrib.admin.sites import AdminSite
+
+        from src.web.persons.admin import EnrichmentRunAdmin
+        from src.web.persons.models import EnrichmentRun
+
+        admin_instance = EnrichmentRunAdmin(EnrichmentRun, AdminSite())
+        assert admin_instance.has_change_permission(None) is False
+
+    def test_delete_not_permitted(self):
+        """has_delete_permission returns False — log records must not be deleted."""
+        from django.contrib.admin.sites import AdminSite
+
+        from src.web.persons.admin import EnrichmentRunAdmin
+        from src.web.persons.models import EnrichmentRun
+
+        admin_instance = EnrichmentRunAdmin(EnrichmentRun, AdminSite())
+        assert admin_instance.has_delete_permission(None) is False

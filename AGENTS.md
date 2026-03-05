@@ -111,6 +111,7 @@ OR-expanded clause for (given, surname) pair matches.
 | `persons_personattribute` | persons | Enrichment data (append-only EAV); `value_type` (indexed) + `metadata` (JSONField) |
 | `persons_attributelabel` | persons | Controlled label vocabulary per `value_type` (e.g. "work", "home") |
 | `persons_externalplatform` | persons | Controlled platform/identity vocabulary for `platform_url` attributes |
+| `persons_enrichmentrun` | persons | Audit log of provider runs (one row per person+provider invocation) |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
 
 **`PersonAttribute.value_type` values:** `text`, `email`, `phone`, `url`, `platform_url`, `location`, `date`.

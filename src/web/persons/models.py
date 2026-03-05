@@ -228,7 +228,9 @@ class EnrichmentRun(models.Model):
     attributes_skipped = models.PositiveIntegerField(default=0)
     warnings = models.JSONField(default=list)
     error = models.TextField(blank=True)
-    triggered_by = models.CharField(max_length=20, choices=TRIGGERED_BY_CHOICES, blank=True)
+    triggered_by = models.CharField(
+        max_length=20, choices=TRIGGERED_BY_CHOICES, blank=True, default="manual"
+    )
     started_at = models.DateTimeField()
     completed_at = models.DateTimeField(null=True, blank=True)
 

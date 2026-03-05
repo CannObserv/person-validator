@@ -1,11 +1,66 @@
-"""Root-level test fixtures."""
+"""Root-level test fixtures and shared factories."""
 
 import shutil
 import sqlite3
 
 import pytest
 
+from src.core.enrichment.base import EnrichmentResult, PersonData, Provider
+from src.core.enrichment.registry import ProviderRegistry
 from tests.helpers import run_django_migrations
+
+# ---------------------------------------------------------------------------
+# Shared factories — used across tests/core/ and tests/web/
+# ---------------------------------------------------------------------------
+
+
+def make_person(**kwargs) -> PersonData:
+    """Return a PersonData instance with sensible defaults."""
+    defaults = {"id": "01TESTPERSON000000000000001", "name": "Alice Smith"}
+    defaults.update(kwargs)
+    return PersonData(**defaults)
+
+
+def make_provider(name: str, results: list[EnrichmentResult]) -> Provider:
+    """Return a Provider stub that always returns *results*."""
+
+    class _P(Provider):
+        def enrich(self, person: PersonData) -> list[EnrichmentResult]:
+            return results
+
+    _P.name = name
+    return _P()
+
+
+def make_registry(*providers: Provider) -> ProviderRegistry:
+    """Return a ProviderRegistry pre-loaded with *providers* (all enabled)."""
+    reg = ProviderRegistry()
+    for p in providers:
+        reg.register(p)
+    return reg
+
+
+@pytest.fixture
+def person_factory():
+    """Fixture that exposes make_person as a callable."""
+    return make_person
+
+
+@pytest.fixture
+def provider_factory():
+    """Fixture that exposes make_provider as a callable."""
+    return make_provider
+
+
+@pytest.fixture
+def registry_factory():
+    """Fixture that exposes make_registry as a callable."""
+    return make_registry
+
+
+# ---------------------------------------------------------------------------
+# Database fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session")

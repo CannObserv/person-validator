@@ -5,28 +5,9 @@ import pytest
 from src.core.enrichment.base import EnrichmentResult, PersonData, Provider
 from src.core.enrichment.registry import ProviderRegistry
 from src.core.enrichment.runner import EnrichmentRunner
-
-
-def _make_person(**kwargs) -> PersonData:
-    defaults = {"id": "01TESTPERSON000000000000001", "name": "Alice Smith"}
-    defaults.update(kwargs)
-    return PersonData(**defaults)
-
-
-def _make_provider(name: str, results: list[EnrichmentResult]) -> Provider:
-    class _P(Provider):
-        def enrich(self, person: PersonData) -> list[EnrichmentResult]:
-            return results
-
-    _P.name = name
-    return _P()
-
-
-def _make_registry(*providers: Provider) -> ProviderRegistry:
-    reg = ProviderRegistry()
-    for p in providers:
-        reg.register(p)
-    return reg
+from tests.conftest import make_person as _make_person
+from tests.conftest import make_provider as _make_provider
+from tests.conftest import make_registry as _make_registry
 
 
 @pytest.mark.django_db
