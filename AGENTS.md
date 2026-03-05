@@ -65,7 +65,12 @@ person-validator/
 │   ├── person-validator-web.service
 │   └── person-validator-api.service
 ├── AGENTS.md                 # This file — agent conventions
-├── PLAYBOOKS.md              # Frequently-used development commands
+├── skills/                   # Agent skills (agentskills.io spec)
+│   ├── reviewing-code-claude/    # Local override
+│   ├── shipping-work-claude/     # Local override
+│   └── reviewing-architecture-claude -> vendor/gregoryfoster-skills/skills/…
+├── vendor/
+│   └── gregoryfoster-skills/    # Git submodule: github.com/gregoryfoster/skills
 ├── env                       # Local secrets (git-ignored)
 └── README.md
 ```
@@ -297,15 +302,55 @@ journalctl -u person-validator-web -f
 journalctl -u person-validator-api -f
 ```
 
-## Playbooks
+## Agent Skills
 
-When the user references a playbook by name or trigger phrase (e.g., `CR`, `ship it`), read **[PLAYBOOKS.md](PLAYBOOKS.md)** and execute the matching procedure. Playbooks define the expected steps, output format, and interaction protocol.
+This project follows the [agentskills.io](https://agentskills.io) spec.
+Skills live in the `skills/` directory and are auto-discovered by the agent
+framework. A skill is either a **local override** (committed directory) or a
+**symlink** to an external skills repo vendored as a git submodule.
 
-**Resolution order** (most specific wins):
-1. **Project-level** — `PLAYBOOKS.md` in the project root
-2. **Global** — `~/.config/shelley/PLAYBOOKS.md` (cross-project defaults)
+### External skill repos (git submodules)
 
-If a playbook name exists in both files, the project-level definition takes precedence. If a playbook exists only in the global file, use it.
+| Repo | Submodule path |
+|---|---|
+| [`gregoryfoster/skills`](https://github.com/gregoryfoster/skills) | `vendor/gregoryfoster-skills/` |
+
+After cloning this project, initialize submodules:
+```bash
+git submodule update --init --recursive
+```
+
+**At the start of every conversation**, pull the latest upstream skills:
+```bash
+git submodule update --remote --merge vendor/gregoryfoster-skills
+```
+If the submodule ref changed, commit it:
+```bash
+git add vendor/gregoryfoster-skills
+git commit -m "chore: update gregoryfoster-skills submodule"
+```
+
+To add a new external skill repo, follow the `managing-skills-claude` skill
+(available in `vendor/gregoryfoster-skills/skills/managing-skills-claude/`).
+
+### Available skills
+
+| Skill | Source | Triggers |
+|---|---|---|
+| `reviewing-code-claude` | Local override | CR, code review, perform a review |
+| `reviewing-architecture-claude` | Symlink → `vendor/gregoryfoster-skills/` | AR, architecture review, architectural review |
+| `shipping-work-claude` | Local override | ship it, push GH, close GH, wrap up |
+
+### Local overrides
+
+A committed directory in `skills/` with the same name as a symlinked global
+skill **completely supersedes** the global version (no inheritance). The local
+version must be fully self-contained.
+
+| Skill | Override reason |
+|---|---|
+| `reviewing-code-claude` | Adds `ruff` to gather-context; Django ORM safety, migration safety, pipeline stage contract, TDD discipline, JSON logging, and FastAPI/Pydantic-specific review dimensions |
+| `shipping-work-claude` | Concrete `uv run pytest -x` + `uv run ruff check` in `pre-ship.sh`; encodes `#<n> [type]: <desc>` commit convention |
 
 ## Conventions
 
