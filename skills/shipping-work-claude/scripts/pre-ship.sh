@@ -26,7 +26,7 @@ uv run ruff check .
 
 echo ""
 echo "=== Tests ==="
-uv run pytest -x
+uv run pytest --no-cov -x
 
 echo ""
 echo "Pre-ship checks passed."

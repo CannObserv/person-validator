@@ -7,7 +7,7 @@ metadata:
   version: "1.0"
   triggers: ship it, push GH, close GH, wrap up
   overrides: shipping-work-claude
-  override-reason: "Concrete test/lint commands (uv run pytest, uv run ruff check); project commit convention (#n [type]: desc); systemd service restart reminder"
+  override-reason: "Concrete test/lint commands (uv run pytest --no-cov, uv run ruff check); project commit convention (#n [type]: desc); systemd service restart step after push"
 ---
 
 # Shipping Work — person-validator
@@ -76,7 +76,22 @@ bash skills/shipping-work-claude/scripts/close-issue.sh <number>
 
 Never close an issue that wasn't fully implemented — ask first if uncertain.
 
-### Step 7 — Report
+### Step 7 — Restart services if needed
+
+If any files under `src/api/` or `src/core/` changed, restart the API service.
+If any files under `src/web/` changed, restart the web service.
+
+```bash
+sudo systemctl restart person-validator-api   # if API/core files changed
+sudo systemctl restart person-validator-web   # if web files changed
+```
+
+Attempt the restart automatically. If it fails (e.g. permission error), prompt the user:
+> "Service restart failed — please run: `sudo systemctl restart person-validator-api` (or -web)"
+
+If no service-relevant files changed, skip this step silently.
+
+### Step 8 — Report
 
 Present a summary table:
 

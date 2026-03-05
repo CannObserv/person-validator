@@ -68,7 +68,7 @@ person-validator/
 ├── skills/                   # Agent skills (agentskills.io spec)
 │   ├── reviewing-code-claude/    # Local override
 │   ├── shipping-work-claude/     # Local override
-│   └── reviewing-architecture-claude -> vendor/gregoryfoster-skills/skills/…
+│   └── reviewing-architecture-claude -> ../vendor/gregoryfoster-skills/skills/reviewing-architecture-claude
 ├── vendor/
 │   └── gregoryfoster-skills/    # Git submodule: github.com/gregoryfoster/skills
 ├── env                       # Local secrets (git-ignored)
@@ -393,6 +393,23 @@ handler. FastAPI wires the same via `configure_logging()` in `create_app()`.
   `datetime.datetime.now()` or `datetime.datetime.utcnow()`.
 - When calling `QuerySet.update()`, always include `updated_at=timezone.now()`
   because `.update()` bypasses `auto_now`.
+
+### Commit message convention
+
+When **not** associated with a GitHub issue:
+```
+[type]: <description>
+```
+
+When associated with one or more GitHub issues:
+```
+#<number> [type]: <description>
+```
+Multiple issues: `#12, #14 [type]: <description>`
+
+Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
+
+The `shipping-work-claude` skill follows this convention when auto-committing uncommitted work.
 
 ### General
 
