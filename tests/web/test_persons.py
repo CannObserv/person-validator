@@ -9,7 +9,14 @@ from django.utils import timezone
 from ulid import ULID
 
 from src.core.fields import ULIDField
-from src.web.persons.models import NAME_TYPE_CHOICES, Person, PersonAttribute, PersonName
+from src.web.persons.models import (
+    NAME_TYPE_CHOICES,
+    AttributeLabel,
+    ExternalPlatform,
+    Person,
+    PersonAttribute,
+    PersonName,
+)
 
 
 @pytest.mark.django_db
@@ -406,8 +413,6 @@ class TestAttributeLabel:
     """Tests for the AttributeLabel model."""
 
     def test_create_label(self):
-        from src.web.persons.models import AttributeLabel
-
         label = AttributeLabel.objects.create(
             value_type="email", slug="vip", display="VIP", sort_order=99
         )
@@ -415,30 +420,20 @@ class TestAttributeLabel:
         assert str(label) == "email/vip"
 
     def test_unique_together_constraint(self):
-        from django.db import IntegrityError
-
-        from src.web.persons.models import AttributeLabel
-
         AttributeLabel.objects.create(value_type="email", slug="custom-unique", display="Custom")
         with pytest.raises(IntegrityError):
             AttributeLabel.objects.create(value_type="email", slug="custom-unique", display="Dupe")
 
     def test_different_type_same_slug_allowed(self):
-        from src.web.persons.models import AttributeLabel
-
         # "work" already exists for email from data migration; only create for a type without it
         label = AttributeLabel.objects.create(value_type="date", slug="work", display="Work")
         assert label.pk is not None
 
     def test_is_active_default_true(self):
-        from src.web.persons.models import AttributeLabel
-
         label = AttributeLabel.objects.create(value_type="email", slug="test-new-slug", display="X")
         assert label.is_active is True
 
     def test_active_filter(self):
-        from src.web.persons.models import AttributeLabel
-
         AttributeLabel.objects.create(
             value_type="email", slug="active-only", display="Active", is_active=True
         )
@@ -459,30 +454,20 @@ class TestExternalPlatform:
     """Tests for the ExternalPlatform model."""
 
     def test_create_platform(self):
-        from src.web.persons.models import ExternalPlatform
-
         p = ExternalPlatform.objects.create(slug="mastodon", display="Mastodon", sort_order=99)
         assert p.pk is not None
         assert str(p) == "Mastodon"
 
     def test_unique_slug_constraint(self):
-        from django.db import IntegrityError
-
-        from src.web.persons.models import ExternalPlatform
-
         ExternalPlatform.objects.create(slug="custom-platform", display="Custom")
         with pytest.raises(IntegrityError):
             ExternalPlatform.objects.create(slug="custom-platform", display="Dupe")
 
     def test_is_active_default_true(self):
-        from src.web.persons.models import ExternalPlatform
-
         p = ExternalPlatform.objects.create(slug="bluesky", display="Bluesky")
         assert p.is_active is True
 
     def test_active_filter(self):
-        from src.web.persons.models import ExternalPlatform
-
         ExternalPlatform.objects.create(slug="new-active-net", display="NewActive", is_active=True)
         ExternalPlatform.objects.create(slug="old-inactive-net", display="OldNet", is_active=False)
         active = list(

@@ -2,6 +2,8 @@
 
 import pytest
 
+from src.web.persons.models import AttributeLabel, ExternalPlatform
+
 
 @pytest.mark.django_db
 class TestAttributeLabelDefaults:
@@ -18,16 +20,12 @@ class TestAttributeLabelDefaults:
         ],
     )
     def test_defaults_present(self, value_type, expected_slugs):
-        from src.web.persons.models import AttributeLabel
-
         actual = set(
             AttributeLabel.objects.filter(value_type=value_type).values_list("slug", flat=True)
         )
         assert expected_slugs.issubset(actual), f"{value_type}: missing {expected_slugs - actual}"
 
     def test_all_defaults_active(self):
-        from src.web.persons.models import AttributeLabel
-
         inactive = AttributeLabel.objects.filter(
             value_type__in=["email", "phone", "url", "platform_url", "location"],
             is_active=False,
@@ -54,21 +52,12 @@ class TestExternalPlatformDefaults:
         "opensecrets",
     }
 
-    def test_social_defaults_present(self):
-        from src.web.persons.models import ExternalPlatform
-
+    def test_all_expected_slugs_present(self):
+        all_slugs = self.SOCIAL_SLUGS | self.AUTHORITY_SLUGS
         actual = set(ExternalPlatform.objects.values_list("slug", flat=True))
-        assert self.SOCIAL_SLUGS.issubset(actual)
-
-    def test_authority_defaults_present(self):
-        from src.web.persons.models import ExternalPlatform
-
-        actual = set(ExternalPlatform.objects.values_list("slug", flat=True))
-        assert self.AUTHORITY_SLUGS.issubset(actual)
+        assert all_slugs.issubset(actual)
 
     def test_all_defaults_active(self):
-        from src.web.persons.models import ExternalPlatform
-
         all_slugs = self.SOCIAL_SLUGS | self.AUTHORITY_SLUGS
         inactive = ExternalPlatform.objects.filter(slug__in=all_slugs, is_active=False)
         assert inactive.count() == 0

@@ -55,7 +55,7 @@ person-validator/
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend
-│       ├── persons/          # Person, PersonName, PersonAttribute, AttributeLabel, SocialPlatform
+│       ├── persons/          # Person, PersonName, PersonAttribute, AttributeLabel, ExternalPlatform
 │       └── keys/             # API key model & admin management
 ├── tests/                    # Test suite (mirrors src/ structure)
 │   ├── api/                  # FastAPI tests
@@ -109,7 +109,7 @@ OR-expanded clause for (given, surname) pair matches.
 | `persons_personname` | persons | All name variants for a person |
 | `persons_personattribute` | persons | Enrichment data (append-only EAV); `value_type` (indexed) + `metadata` (JSONField) |
 | `persons_attributelabel` | persons | Controlled label vocabulary per `value_type` (e.g. "work", "home") |
-| `persons_socialplatform` | persons | Controlled platform vocabulary for `platform_url` attributes |
+| `persons_externalplatform` | persons | Controlled platform/identity vocabulary for `platform_url` attributes |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
 
 **`PersonAttribute.value_type` values:** `text`, `email`, `phone`, `url`, `platform_url`, `location`, `date`.

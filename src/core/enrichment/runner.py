@@ -36,7 +36,7 @@ def _load_active_labels(value_type: str) -> set[str]:
 
 
 def _load_active_platforms() -> set[str]:
-    """Return the set of active social platform slugs from the DB."""
+    """Return the set of active external platform slugs from the DB."""
     from src.web.persons.models import ExternalPlatform  # noqa: PLC0415
 
     return set(ExternalPlatform.objects.filter(is_active=True).values_list("slug", flat=True))
