@@ -1,16 +1,16 @@
 """Admin configuration for persons app models.
 
-Covers Person, PersonName, PersonAttribute, AttributeLabel, and SocialPlatform.
+Covers Person, PersonName, PersonAttribute, AttributeLabel, and ExternalPlatform.
 """
 
 from django.contrib import admin
 
 from src.web.persons.models import (
     AttributeLabel,
+    ExternalPlatform,
     Person,
     PersonAttribute,
     PersonName,
-    SocialPlatform,
 )
 
 
@@ -78,9 +78,9 @@ class AttributeLabelAdmin(admin.ModelAdmin):
     ordering = ("value_type", "sort_order", "slug")
 
 
-@admin.register(SocialPlatform)
-class SocialPlatformAdmin(admin.ModelAdmin):
-    """Admin for the social platform vocabulary."""
+@admin.register(ExternalPlatform)
+class ExternalPlatformAdmin(admin.ModelAdmin):
+    """Admin for the external platform/identity vocabulary."""
 
     list_display = ("slug", "display", "sort_order", "is_active")
     list_filter = ("is_active",)

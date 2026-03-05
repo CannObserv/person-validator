@@ -37,9 +37,9 @@ def _load_active_labels(value_type: str) -> set[str]:
 
 def _load_active_platforms() -> set[str]:
     """Return the set of active social platform slugs from the DB."""
-    from src.web.persons.models import SocialPlatform  # noqa: PLC0415
+    from src.web.persons.models import ExternalPlatform  # noqa: PLC0415
 
-    return set(SocialPlatform.objects.filter(is_active=True).values_list("slug", flat=True))
+    return set(ExternalPlatform.objects.filter(is_active=True).values_list("slug", flat=True))
 
 
 def _validate_result(result: EnrichmentResult) -> AttributeValue | None:

@@ -1,4 +1,4 @@
-"""Tests that data migration 0005 pre-populates correct defaults."""
+"""Tests that data migrations pre-populate correct defaults."""
 
 import pytest
 
@@ -36,19 +36,39 @@ class TestAttributeLabelDefaults:
 
 
 @pytest.mark.django_db
-class TestSocialPlatformDefaults:
-    """Verify default SocialPlatform rows from the data migration."""
+class TestExternalPlatformDefaults:
+    """Verify default ExternalPlatform rows from the data migrations."""
 
-    EXPECTED = {"linkedin", "github", "twitter", "instagram", "facebook", "youtube", "tiktok"}
+    SOCIAL_SLUGS = {"linkedin", "github", "twitter", "instagram", "facebook", "youtube", "tiktok"}
+    AUTHORITY_SLUGS = {
+        "wikidata",
+        "wikipedia",
+        "viaf",
+        "isni",
+        "loc",
+        "gnd",
+        "orcid",
+        "imdb",
+        "musicbrainz",
+        "ballotpedia",
+        "opensecrets",
+    }
 
-    def test_defaults_present(self):
-        from src.web.persons.models import SocialPlatform
+    def test_social_defaults_present(self):
+        from src.web.persons.models import ExternalPlatform
 
-        actual = set(SocialPlatform.objects.values_list("slug", flat=True))
-        assert self.EXPECTED.issubset(actual)
+        actual = set(ExternalPlatform.objects.values_list("slug", flat=True))
+        assert self.SOCIAL_SLUGS.issubset(actual)
+
+    def test_authority_defaults_present(self):
+        from src.web.persons.models import ExternalPlatform
+
+        actual = set(ExternalPlatform.objects.values_list("slug", flat=True))
+        assert self.AUTHORITY_SLUGS.issubset(actual)
 
     def test_all_defaults_active(self):
-        from src.web.persons.models import SocialPlatform
+        from src.web.persons.models import ExternalPlatform
 
-        inactive = SocialPlatform.objects.filter(slug__in=self.EXPECTED, is_active=False)
+        all_slugs = self.SOCIAL_SLUGS | self.AUTHORITY_SLUGS
+        inactive = ExternalPlatform.objects.filter(slug__in=all_slugs, is_active=False)
         assert inactive.count() == 0

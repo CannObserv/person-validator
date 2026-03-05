@@ -455,37 +455,39 @@ class TestAttributeLabel:
 
 
 @pytest.mark.django_db
-class TestSocialPlatform:
-    """Tests for the SocialPlatform model."""
+class TestExternalPlatform:
+    """Tests for the ExternalPlatform model."""
 
     def test_create_platform(self):
-        from src.web.persons.models import SocialPlatform
+        from src.web.persons.models import ExternalPlatform
 
-        p = SocialPlatform.objects.create(slug="mastodon", display="Mastodon", sort_order=99)
+        p = ExternalPlatform.objects.create(slug="mastodon", display="Mastodon", sort_order=99)
         assert p.pk is not None
         assert str(p) == "Mastodon"
 
     def test_unique_slug_constraint(self):
         from django.db import IntegrityError
 
-        from src.web.persons.models import SocialPlatform
+        from src.web.persons.models import ExternalPlatform
 
-        SocialPlatform.objects.create(slug="custom-platform", display="Custom")
+        ExternalPlatform.objects.create(slug="custom-platform", display="Custom")
         with pytest.raises(IntegrityError):
-            SocialPlatform.objects.create(slug="custom-platform", display="Dupe")
+            ExternalPlatform.objects.create(slug="custom-platform", display="Dupe")
 
     def test_is_active_default_true(self):
-        from src.web.persons.models import SocialPlatform
+        from src.web.persons.models import ExternalPlatform
 
-        p = SocialPlatform.objects.create(slug="bluesky", display="Bluesky")
+        p = ExternalPlatform.objects.create(slug="bluesky", display="Bluesky")
         assert p.is_active is True
 
     def test_active_filter(self):
-        from src.web.persons.models import SocialPlatform
+        from src.web.persons.models import ExternalPlatform
 
-        SocialPlatform.objects.create(slug="new-active-net", display="NewActive", is_active=True)
-        SocialPlatform.objects.create(slug="old-inactive-net", display="OldNet", is_active=False)
-        active = list(SocialPlatform.objects.filter(is_active=True).values_list("slug", flat=True))
+        ExternalPlatform.objects.create(slug="new-active-net", display="NewActive", is_active=True)
+        ExternalPlatform.objects.create(slug="old-inactive-net", display="OldNet", is_active=False)
+        active = list(
+            ExternalPlatform.objects.filter(is_active=True).values_list("slug", flat=True)
+        )
         assert "new-active-net" in active
         assert "old-inactive-net" not in active
 

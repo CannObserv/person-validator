@@ -1,4 +1,4 @@
-"""Tests for Person, PersonName, PersonAttribute, AttributeLabel, and SocialPlatform admin."""
+"""Tests for Person, PersonName, PersonAttribute, AttributeLabel, and ExternalPlatform admin."""
 
 import pytest
 from django.contrib.admin import site as admin_site
@@ -6,18 +6,18 @@ from django.contrib.admin.sites import AdminSite
 
 from src.web.persons.admin import (
     AttributeLabelAdmin,
+    ExternalPlatformAdmin,
     PersonAdmin,
     PersonAttributeAdmin,
     PersonAttributeInline,
     PersonNameInline,
-    SocialPlatformAdmin,
 )
 from src.web.persons.models import (
     AttributeLabel,
+    ExternalPlatform,
     Person,
     PersonAttribute,
     PersonName,
-    SocialPlatform,
 )
 
 
@@ -112,16 +112,16 @@ class TestAttributeLabelAdmin:
         assert "is_active" in admin.list_filter
 
 
-class TestSocialPlatformAdmin:
-    """Tests for SocialPlatformAdmin configuration."""
+class TestExternalPlatformAdmin:
+    """Tests for ExternalPlatformAdmin configuration."""
 
     def test_list_display(self):
-        admin = SocialPlatformAdmin(SocialPlatform, AdminSite())
+        admin = ExternalPlatformAdmin(ExternalPlatform, AdminSite())
         for col in ("slug", "display", "sort_order", "is_active"):
             assert col in admin.list_display
 
     def test_list_filter(self):
-        admin = SocialPlatformAdmin(SocialPlatform, AdminSite())
+        admin = ExternalPlatformAdmin(ExternalPlatform, AdminSite())
         assert "is_active" in admin.list_filter
 
 
@@ -141,9 +141,9 @@ class TestPersonAdminIntegration:
         """AttributeLabel model is registered in the admin site."""
         assert AttributeLabel in admin_site._registry
 
-    def test_social_platform_registered_in_admin(self):
-        """SocialPlatform model is registered in the admin site."""
-        assert SocialPlatform in admin_site._registry
+    def test_external_platform_registered_in_admin(self):
+        """ExternalPlatform model is registered in the admin site."""
+        assert ExternalPlatform in admin_site._registry
 
     def test_person_attribute_registered_in_admin(self):
         """PersonAttribute model is registered standalone in the admin site."""

@@ -1,4 +1,4 @@
-"""Person, PersonName, PersonAttribute, AttributeLabel, and SocialPlatform models."""
+"""Person, PersonName, PersonAttribute, AttributeLabel, and ExternalPlatform models."""
 
 # VALUE_TYPE_CHOICES is defined in src/core/enrichment/attribute_types.py and
 # imported here so the canonical list lives in one place.
@@ -135,8 +135,8 @@ class AttributeLabel(models.Model):
         return f"{self.value_type}/{self.slug}"
 
 
-class SocialPlatform(models.Model):
-    """Controlled vocabulary of social/platform identifiers for platform_url attributes."""
+class ExternalPlatform(models.Model):
+    """Controlled vocabulary of external platform/identity identifiers for platform_url."""
 
     slug = models.SlugField(max_length=50, unique=True)
     display = models.CharField(max_length=100)
@@ -144,7 +144,7 @@ class SocialPlatform(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        db_table = "persons_socialplatform"
+        db_table = "persons_externalplatform"
         ordering = ["sort_order", "slug"]
 
     def __str__(self) -> str:
