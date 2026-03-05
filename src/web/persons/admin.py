@@ -29,6 +29,8 @@ class PersonNameInline(admin.TabularInline):
         "suffix",
         "is_primary",
         "source",
+        "confidence",
+        "provenance",
     )
     readonly_fields = ("created_at", "updated_at")
 

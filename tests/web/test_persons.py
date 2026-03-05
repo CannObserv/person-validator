@@ -637,3 +637,85 @@ class TestForeignKeyEnforcement:
                 value_type="text",
                 value="hello",
             )
+
+
+@pytest.mark.django_db
+class TestPersonNameConfidenceProvenance:
+    """Tests for confidence and provenance fields on PersonName (issue #16)."""
+
+    def _make_person_name(self, person, **kwargs):
+        defaults = {
+            "name_type": "alias",
+            "full_name": "Jane Doe",
+            "is_primary": False,
+            "source": "manual",
+        }
+        defaults.update(kwargs)
+        return PersonName.objects.create(person=person, **defaults)
+
+    def test_confidence_nullable_by_default(self):
+        """confidence defaults to null for manually-entered names."""
+        person = Person.objects.create(name="Jane Doe")
+        pn = self._make_person_name(person)
+        pn.refresh_from_db()
+        assert pn.confidence is None
+
+    def test_confidence_accepts_valid_range(self):
+        """confidence accepts values in [0.0, 1.0]."""
+        person = Person.objects.create(name="Jane Doe")
+        pn = self._make_person_name(person, confidence=0.75)
+        pn.refresh_from_db()
+        assert pn.confidence == 0.75
+
+    def test_confidence_accepts_zero_and_one(self):
+        """confidence accepts boundary values 0.0 and 1.0."""
+        person = Person.objects.create(name="Jane Doe")
+        pn0 = self._make_person_name(person, confidence=0.0)
+        pn1 = self._make_person_name(person, full_name="Jane D.", confidence=1.0)
+        pn0.refresh_from_db()
+        pn1.refresh_from_db()
+        assert pn0.confidence == 0.0
+        assert pn1.confidence == 1.0
+
+    def test_confidence_rejects_below_zero(self):
+        """confidence below 0.0 fails full_clean validation."""
+        person = Person.objects.create(name="Jane Doe")
+        pn = self._make_person_name(person, confidence=-0.1)
+        with pytest.raises(ValidationError):
+            pn.full_clean()
+
+    def test_confidence_rejects_above_one(self):
+        """confidence above 1.0 fails full_clean validation."""
+        person = Person.objects.create(name="Jane Doe")
+        pn = self._make_person_name(person, confidence=1.1)
+        with pytest.raises(ValidationError):
+            pn.full_clean()
+
+    def test_provenance_nullable_by_default(self):
+        """provenance defaults to null for manually-entered names."""
+        person = Person.objects.create(name="Jane Doe")
+        pn = self._make_person_name(person)
+        pn.refresh_from_db()
+        assert pn.provenance is None
+
+    def test_provenance_stores_json(self):
+        """provenance round-trips correctly as a JSONField."""
+        person = Person.objects.create(name="Jane Doe")
+        payload = {
+            "provider": "wikidata",
+            "retrieved_at": "2025-07-10T14:00:00Z",
+            "wikidata_qid": "Q23",
+            "wikidata_alias_lang": "en",
+            "source_url": "https://www.wikidata.org/wiki/Q23",
+        }
+        pn = self._make_person_name(person, provenance=payload)
+        pn.refresh_from_db()
+        assert pn.provenance == payload
+
+    def test_both_fields_null_for_manual_entry(self):
+        """Both confidence and provenance are null for manual entries."""
+        person = Person.objects.create(name="Jane Doe")
+        pn = self._make_person_name(person)
+        pn.refresh_from_db()
+        assert pn.confidence is None
+        assert pn.provenance is None

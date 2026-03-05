@@ -68,6 +68,24 @@ class PersonName(models.Model):
     effective_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    confidence = models.FloatField(
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        null=True,
+        blank=True,
+        help_text=(
+            "Certainty score [0.0\u20131.0] for this name record. "
+            "Null = unscored (e.g. manually entered)."
+        ),
+    )
+    provenance = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Structured provenance metadata. Schema is provider-dependent. "
+            "Common keys: provider (str), retrieved_at (ISO 8601 str), "
+            "source_url (str), wikidata_qid (str), wikidata_alias_lang (str)."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
