@@ -25,10 +25,12 @@ class WikidataCandidateReview(models.Model):
     """
 
     STATUS_CHOICES = [
-        ("pending", "Pending Review"),
-        ("accepted", "Accepted"),
-        ("rejected", "Rejected — No Match"),
-        ("skipped", "Skipped — Review Later"),
+        ("pending",     "Pending Review"),
+        ("auto_linked", "Auto-Linked — Awaiting Confirmation"),  # created on unambiguous auto-link
+        ("accepted",   "Accepted"),                              # admin selected from candidates
+        ("confirmed",  "Confirmed"),                            # admin confirmed an auto-link
+        ("rejected",   "Rejected — No Match"),
+        ("skipped",    "Skipped — Review Later"),
     ]
 
     id = ULIDField(primary_key=True)
@@ -59,9 +61,13 @@ List of candidate dicts, each with:
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="pending"
     )
-    accepted_qid = models.CharField(
+    linked_qid = models.CharField(
         max_length=20, blank=True,
-        help_text="Set by admin when accepting a candidate.",
+        help_text=(
+            "The accepted or auto-linked QID. "
+            "Populated at creation time for auto_linked reviews; "
+            "set by admin action for accepted reviews."
+        ),
     )
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
@@ -89,28 +95,46 @@ In `src/web/persons/signals.py` (create if not exists):
 
 ```python
 @receiver(post_save, sender=WikidataCandidateReview)
-def on_review_accepted(sender, instance, **kwargs):
-    """When a review is accepted, trigger WikidataProvider with confirmed QID,
-    then run all downstream providers."""
-    if instance.status != "accepted" or not instance.accepted_qid:
-        return
-    from src.core.enrichment.tasks import run_enrichment_for_person
-    run_enrichment_for_person(
-        person_id=instance.person_id,
-        triggered_by="adjudication",
-        confirmed_wikidata_qid=instance.accepted_qid,
-    )
+def on_review_resolved(sender, instance, **kwargs):
+    """
+    Dispatch the appropriate action when a review reaches a terminal status.
+
+    accepted  → run full enrichment with confirmed QID (downstream providers included)
+    confirmed → bump confidence on already-written Wikidata attributes; no re-enrichment
+    rejected  → if the review was auto_linked, rollback is handled directly in the admin
+                response_change() to avoid relying on pre-save state here
+    """
+    from src.core.enrichment.tasks import run_enrichment_for_person, _bump_wikidata_confidence
+
+    if instance.status == "accepted" and instance.linked_qid:
+        run_enrichment_for_person(
+            person_id=instance.person_id,
+            triggered_by="adjudication",
+            confirmed_wikidata_qid=instance.linked_qid,
+        )
+    elif instance.status == "confirmed":
+        _bump_wikidata_confidence(
+            person_id=instance.person_id,
+            reviewed_by_id=instance.reviewed_by_id,
+        )
 ```
+
+Rejection of an `auto_linked` review triggers `_rollback_wikidata_autolink()` directly inside
+the admin `response_change()` method (see #31) rather than via signal, because the signal
+cannot reliably inspect the *previous* status.
 
 `run_enrichment_for_person` is a function (not a Celery task — synchronous for now) in `src/core/enrichment/tasks.py` that builds a `PersonData`, runs the full `EnrichmentRunner` with all enabled providers, and handles exceptions.
 
 ## Acceptance criteria
 
 - [ ] `WikidataCandidateReview` model exists with all fields above
+- [ ] `auto_linked` and `confirmed` statuses present in `STATUS_CHOICES`
+- [ ] `accepted_qid` renamed to `linked_qid` (with migration)
 - [ ] Both DB indexes present
-- [ ] Post-save signal fires `run_enrichment_for_person` on `status="accepted"`
-- [ ] Signal is connected in `persons` AppConfig.ready()
-- [ ] `run_enrichment_for_person` utility function exists and is tested
-- [ ] Signal does not fire on create (only on update to accepted)
+- [ ] Post-save signal dispatches correctly for `accepted` (re-enrichment) and `confirmed` (confidence bump)
+- [ ] Signal is connected in `persons` AppConfig.ready()`
+- [ ] `run_enrichment_for_person` and `_bump_wikidata_confidence` utility functions exist and are tested
+- [ ] Signal does not fire on create (only on update)
 - [ ] Migration applies cleanly
-- [ ] Tests cover: signal fires on accept, does not fire on other status changes
+- [ ] Tests cover: signal fires on accept, fires on confirm, does not fire on other status changes
+- [ ] See also #31 for full confirmation/rollback behaviour and admin UI requirements

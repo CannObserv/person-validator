@@ -96,12 +96,14 @@ Score each candidate (0.0–1.0) by comparing Wikidata entity properties against
 | Wikipedia article exists | 0.05 | Presence of `sitelinks.enwiki` |
 
 **Decision rules:**
-- `score ≥ 0.85` AND exactly one candidate above threshold → **auto-link** (confidence = `0.75`)
-- `score ≥ 0.85` AND multiple candidates above threshold → **create WikidataCandidateReview**
-- All candidates `score < 0.85` → **create WikidataCandidateReview** with top 5 candidates
+- `score ≥ 0.85` AND exactly one candidate above threshold → **auto-link** (attributes written at `confidence=0.75`; `WikidataCandidateReview(status="auto_linked")` created — see #31)
+- `score ≥ 0.85` AND multiple candidates above threshold → **create `WikidataCandidateReview(status="pending")`**
+- All candidates `score < 0.85` → **create `WikidataCandidateReview(status="pending")`** with top 5 candidates
 - Zero candidates returned by search → `EnrichmentRun(status="no_match")`
 
-**Confirmed QID mode:** If `enrich()` is called with `confirmed_qid` (post-adjudication), skip search and scoring entirely. Fetch the entity directly and proceed to extraction. Attributes written in confirmed mode use `confidence=0.95`.
+**Confirmed QID mode:** If `enrich()` is called with `confirmed_wikidata_qid` (post-adjudication from `accepted` review) or `force_rescore=True` (after rejected auto-link rollback), skip search and scoring entirely. Fetch the entity directly. Attributes written in this mode use `confidence=0.95`.
+
+`force_rescore=True` must cause the provider to ignore any existing `wikidata_qid` attribute on the person and perform a fresh search, avoiding immediate re-linking to the just-rejected QID.
 
 ## What the provider extracts (on successful link)
 
@@ -174,15 +176,28 @@ class WikidataProvider(Provider):
     dependencies = []  # no dependencies — Round 1 provider
 
     AUTO_LINK_THRESHOLD = 0.85
-    AUTO_LINK_CONFIDENCE = 0.75
-    CONFIRMED_CONFIDENCE = 0.95
+    AUTO_LINK_CONFIDENCE      = 0.75  # attributes written on auto-link (unconfirmed)
+    CONFIRMED_CONFIDENCE      = 0.95  # attributes written in confirmed QID mode
+    ALIAS_CONFIDENCE          = 0.70  # PersonName aliases on auto-link
+    CONFIRMED_ALIAS_CONFIDENCE = 0.80  # PersonName aliases after admin confirmation
 
     def __init__(self, http_client: WikimediaHttpClient | None = None) -> None: ...
 
-    def enrich(self, person: PersonData) -> list[EnrichmentResult]: ...
+    def enrich(
+        self,
+        person: PersonData,
+        *,
+        confirmed_wikidata_qid: str | None = None,
+        force_rescore: bool = False,
+    ) -> list[EnrichmentResult]:
+        """
+        Main enrichment entry point.
 
-    def enrich_confirmed(self, person: PersonData, qid: str) -> list[EnrichmentResult]:
-        """Fetch and extract a specific QID without search/scoring."""
+        confirmed_wikidata_qid: if provided, skip search and extract this QID directly
+            at CONFIRMED_CONFIDENCE. Used after admin accepts a pending review.
+        force_rescore: if True, ignore existing wikidata_qid attribute and perform a
+            fresh search. Used after admin rejects an auto_linked review (rollback path).
+        """
         ...
 ```
 
@@ -190,14 +205,16 @@ class WikidataProvider(Provider):
 
 - [ ] `WikimediaHttpClient` in `src/core/enrichment/providers/wikimedia_client.py`
 - [ ] `WikidataProvider` in `src/core/enrichment/providers/wikidata.py`
-- [ ] Search → score → auto-link path tested end-to-end (mocked HTTP)
-- [ ] Search → score → `WikidataCandidateReview` creation path tested
-- [ ] Zero candidates → `no_match` run status tested
-- [ ] `enrich_confirmed()` path tested
+- [ ] Search → score → auto-link path: attributes written at `AUTO_LINK_CONFIDENCE`, `WikidataCandidateReview(status="auto_linked")` created (see #31)
+- [ ] Search → score → ambiguous: `WikidataCandidateReview(status="pending")` created, no attributes written
+- [ ] Zero candidates → `no_match` run status, no review created
+- [ ] `confirmed_wikidata_qid` path: attributes at `CONFIRMED_CONFIDENCE`, no review created
+- [ ] `force_rescore=True` ignores existing `wikidata_qid` attribute
 - [ ] Birth date precision handling tested (day vs year vs century)
-- [ ] Alias creation tested (deduplication, `infer_name_type`)
+- [ ] Alias creation tested (deduplication, `infer_name_type`, `ALIAS_CONFIDENCE`)
 - [ ] External identifier extraction tested (with and without `formatter_url`)
 - [ ] `ExternalPlatform` auto-creation tested
 - [ ] Disambiguation page (`P31=Q4167410`) filtered out
 - [ ] HTTP 429 retry tested
 - [ ] Integration test (marked `@pytest.mark.integration`) hits live Wikidata for a well-known person
+- [ ] See #31 for confirmation/rollback behaviour tests (bump utility, rollback utility)

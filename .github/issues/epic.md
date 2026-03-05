@@ -33,11 +33,17 @@ Wikidata contains 10,028 external identifier properties. 2,394 apply to human pe
 
 | Link method | Confidence |
 |---|---|
-| Auto-linked (unambiguous Wikidata match) | 0.75 |
-| Human-adjudicated (admin accepted) | 0.95 |
+| Auto-linked, unconfirmed (`auto_linked` review open) | 0.75 |
+| Auto-linked, admin confirmed (`confirmed` review) | 0.95 |
+| Admin-adjudicated from candidates (`accepted` review) | 0.95 |
 | Derived from confirmed Wikidata identifier | 0.90 |
 | Downstream provider data (VIAF facts, ORCID record) | 0.85 |
-| Name alias from Wikidata | 0.70 |
+| Name alias — auto-linked, unconfirmed | 0.70 |
+| Name alias — confirmed | 0.80 |
+
+See #31 for the confirmation mechanism design: `WikidataCandidateReview` carries an
+`auto_linked` status for unambiguous matches, allowing admins to confirm (bump to 0.95)
+or reject (rollback attributes and re-queue for manual search).
 
 ## Implementation phases
 
@@ -56,6 +62,7 @@ Prerequisites for all providers. No user-visible enrichment output yet.
 - #20: `WikidataCandidateReview` model + post-save signal
 - #21: `WikidataProvider` implementation
 - #22: Django admin adjudication UI
+- #31: Auto-link confirmation — confirm/reject unambiguous matches, bump confidence 0.75 → 0.95
 
 ### Phase 2 — WikipediaProvider
 
