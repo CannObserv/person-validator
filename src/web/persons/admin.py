@@ -7,6 +7,7 @@ from django.contrib import admin
 
 from src.web.persons.models import (
     AttributeLabel,
+    EnrichmentRun,
     ExternalPlatform,
     Person,
     PersonAttribute,
@@ -131,3 +132,42 @@ class ExternalPlatformAdmin(admin.ModelAdmin):
     list_filter = ("is_active",)
     search_fields = ("slug", "display")
     ordering = ("sort_order", "slug")
+
+
+@admin.register(EnrichmentRun)
+class EnrichmentRunAdmin(admin.ModelAdmin):
+    """Read-only admin for the EnrichmentRun audit log."""
+
+    list_display = (
+        "person",
+        "provider",
+        "status",
+        "attributes_saved",
+        "attributes_skipped",
+        "triggered_by",
+        "started_at",
+        "completed_at",
+    )
+    list_filter = ("provider", "status", "triggered_by")
+    search_fields = ("person__name", "provider")
+    readonly_fields = (
+        "id",
+        "person",
+        "provider",
+        "status",
+        "attributes_saved",
+        "attributes_skipped",
+        "warnings",
+        "error",
+        "triggered_by",
+        "started_at",
+        "completed_at",
+    )
+
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
+        """Prevent manual creation of audit log entries."""
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
+        """Prevent editing of audit log entries."""
+        return False

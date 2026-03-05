@@ -168,14 +168,19 @@ class EnrichmentRunner:
     def __init__(self, registry: ProviderRegistry) -> None:
         self._registry = registry
 
-    def run(self, person: PersonData) -> EnrichmentRunResult:
+    def run(self, person: PersonData, triggered_by: str = "manual") -> EnrichmentRunResult:
         """Run all enabled providers and return an EnrichmentRunResult.
 
         - Provider failures are caught and logged; other providers still run.
         - Invalid attribute values (Pydantic failure) are skipped.
         - Unknown label slugs are stripped with a warning.
         - Unknown platform slugs are stripped with a warning.
+        - An EnrichmentRun audit record is created and updated per provider.
         """
+        from django.utils import timezone  # noqa: PLC0415
+
+        from src.web.persons.models import EnrichmentRun  # noqa: PLC0415
+
         run_result = EnrichmentRunResult(person_id=person.id)
 
         # Load vocab sets once per run to avoid per-attribute DB queries.
@@ -183,61 +188,88 @@ class EnrichmentRunner:
         platform_cache: set[str] = _load_active_platforms()
 
         for provider in self._registry.enabled_providers():
+            db_run = EnrichmentRun.objects.create(
+                person_id=person.id,
+                provider=provider.name,
+                status="running",
+                triggered_by=triggered_by,
+                started_at=timezone.now(),
+            )
+
+            provider_saved = 0
+            provider_skipped = 0
+            provider_warnings: list[EnrichmentWarning] = []
+
             try:
                 results = provider.enrich(person)
-            except Exception:  # noqa: BLE001
+
+                for result in results:
+                    validated = _validate_result(result)
+                    if validated is None:
+                        logger.warning(
+                            "Skipping invalid attribute '%s' from provider '%s'",
+                            result.key,
+                            provider.name,
+                        )
+                        provider_skipped += 1
+                        continue
+
+                    # Strip unknown labels using the pre-loaded cache.
+                    clean_labels: list[str] = []
+                    if result.value_type in LABELABLE_TYPES:
+                        clean_labels = _strip_invalid_labels(
+                            validated,
+                            provider.name,
+                            result.key,
+                            label_cache[result.value_type],
+                            provider_warnings,
+                        )
+
+                    # Strip unknown platform using the pre-loaded cache.
+                    clean_platform: str | None = None
+                    if isinstance(validated, PlatformUrlAttributeValue):
+                        clean_platform = _strip_invalid_platform(
+                            validated,
+                            provider.name,
+                            result.key,
+                            platform_cache,
+                            provider_warnings,
+                        )
+
+                    try:
+                        _persist_attribute(
+                            person.id,
+                            provider.name,
+                            result,
+                            validated,
+                            clean_labels,
+                            clean_platform,
+                        )
+                        provider_saved += 1
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "Failed to persist attribute '%s' from provider '%s'",
+                            result.key,
+                            provider.name,
+                        )
+                        provider_skipped += 1
+
+                db_run.status = "completed"
+                db_run.attributes_saved = provider_saved
+                db_run.attributes_skipped = provider_skipped
+                db_run.warnings = [w.__dict__ for w in provider_warnings]
+
+            except Exception as exc:  # noqa: BLE001
                 logger.exception("Provider '%s' raised an exception", provider.name)
-                continue
+                db_run.status = "failed"
+                db_run.error = str(exc)
 
-            for result in results:
-                validated = _validate_result(result)
-                if validated is None:
-                    logger.warning(
-                        "Skipping invalid attribute '%s' from provider '%s'",
-                        result.key,
-                        provider.name,
-                    )
-                    run_result.attributes_skipped += 1
-                    continue
+            finally:
+                db_run.completed_at = timezone.now()
+                db_run.save()
 
-                # Strip unknown labels using the pre-loaded cache.
-                clean_labels: list[str] = []
-                if result.value_type in LABELABLE_TYPES:
-                    clean_labels = _strip_invalid_labels(
-                        validated,
-                        provider.name,
-                        result.key,
-                        label_cache[result.value_type],
-                        run_result.warnings,
-                    )
-
-                # Strip unknown platform using the pre-loaded cache.
-                clean_platform: str | None = None
-                if isinstance(validated, PlatformUrlAttributeValue):
-                    clean_platform = _strip_invalid_platform(
-                        validated,
-                        provider.name,
-                        result.key,
-                        platform_cache,
-                        run_result.warnings,
-                    )
-
-                try:
-                    _persist_attribute(
-                        person.id,
-                        provider.name,
-                        result,
-                        validated,
-                        clean_labels,
-                        clean_platform,
-                    )
-                    run_result.attributes_saved += 1
-                except Exception:  # noqa: BLE001
-                    logger.exception(
-                        "Failed to persist attribute '%s' from provider '%s'",
-                        result.key,
-                        provider.name,
-                    )
-                    run_result.attributes_skipped += 1
+            run_result.attributes_saved += provider_saved
+            run_result.attributes_skipped += provider_skipped
+            run_result.warnings.extend(provider_warnings)
 
         return run_result

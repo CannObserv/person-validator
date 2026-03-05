@@ -200,3 +200,45 @@ class PersonAttribute(models.Model):
 
     def __str__(self) -> str:
         return f"{self.key}: {self.value}"
+
+
+class EnrichmentRun(models.Model):
+    """Audit log record for a single provider run against a person."""
+
+    STATUS_CHOICES = [
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+        ("skipped", "Skipped"),
+        ("no_match", "No Match"),
+    ]
+
+    TRIGGERED_BY_CHOICES = [
+        ("cron", "Cron"),
+        ("adjudication", "Adjudication"),
+        ("manual", "Manual"),
+        ("api", "API"),
+    ]
+
+    id = ULIDField(primary_key=True)
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name="enrichment_runs")
+    provider = models.CharField(max_length=100)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    attributes_saved = models.PositiveIntegerField(default=0)
+    attributes_skipped = models.PositiveIntegerField(default=0)
+    warnings = models.JSONField(default=list)
+    error = models.TextField(blank=True)
+    triggered_by = models.CharField(max_length=20, choices=TRIGGERED_BY_CHOICES, blank=True)
+    started_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "persons_enrichmentrun"
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["person", "provider", "-started_at"]),
+            models.Index(fields=["provider", "status", "-started_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider} / {self.person} / {self.status}"
