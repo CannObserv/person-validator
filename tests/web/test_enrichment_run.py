@@ -145,7 +145,7 @@ class TestEnrichmentRunModel:
         assert EnrichmentRun.objects.filter(person_id=person_pk).count() == 0
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestRunnerCreatesEnrichmentRunRecords:
     """Runner integration: EnrichmentRun records are created/updated during runs."""
 

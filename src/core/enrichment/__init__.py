@@ -16,6 +16,8 @@ from src.core.enrichment.attribute_types import (
     UrlAttributeValue,
 )
 from src.core.enrichment.base import (
+    CircularDependencyError,
+    Dependency,
     EnrichmentResult,
     EnrichmentRunResult,
     EnrichmentWarning,
@@ -39,6 +41,8 @@ __all__ = [
     "UrlAttributeValue",
     "VALUE_TYPE_CHOICES",
     # Base abstractions
+    "CircularDependencyError",
+    "Dependency",
     "EnrichmentResult",
     "EnrichmentRunResult",
     "EnrichmentWarning",

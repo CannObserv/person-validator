@@ -3,6 +3,8 @@
 import pytest
 
 from src.core.enrichment.base import (
+    CircularDependencyError,
+    Dependency,
     EnrichmentResult,
     EnrichmentRunResult,
     EnrichmentWarning,
@@ -83,6 +85,38 @@ class TestPersonData:
         assert p.surname == "Smith"
         assert p.middle_name is None
 
+    def test_existing_attributes_defaults_to_empty(self):
+        p = PersonData(id="x", name="Alice")
+        assert p.existing_attributes == []
+
+    def test_existing_attributes_are_independent_per_instance(self):
+        p1 = PersonData(id="a", name="Alice")
+        p2 = PersonData(id="b", name="Bob")
+        p1.existing_attributes.append(
+            {"key": "foo", "value": "bar", "value_type": "text", "source": "s"}
+        )
+        assert p2.existing_attributes == []
+
+    def test_attribute_keys_returns_set_of_keys(self):
+        p = PersonData(
+            id="x",
+            name="Alice",
+            existing_attributes=[
+                {"key": "wikidata_qid", "value": "Q42", "value_type": "text", "source": "wikidata"},
+                {
+                    "key": "wikidata_url",
+                    "value": "https://wikidata.org/wiki/Q42",
+                    "value_type": "url",
+                    "source": "wikidata",
+                },
+            ],
+        )
+        assert p.attribute_keys() == {"wikidata_qid", "wikidata_url"}
+
+    def test_attribute_keys_empty_when_no_attributes(self):
+        p = PersonData(id="x", name="Alice")
+        assert p.attribute_keys() == set()
+
 
 class TestProviderABC:
     """Tests for the Provider abstract base class."""
@@ -108,6 +142,111 @@ class TestProviderABC:
 
         p = GoodProvider()
         assert p.enrich(PersonData(id="x", name="Alice")) == []
+
+
+class TestDependency:
+    """Tests for the Dependency dataclass."""
+
+    def test_required_field(self):
+        d = Dependency(attribute_key="wikidata_qid")
+        assert d.attribute_key == "wikidata_qid"
+
+    def test_skip_if_absent_defaults_true(self):
+        d = Dependency(attribute_key="wikidata_qid")
+        assert d.skip_if_absent is True
+
+    def test_skip_if_absent_can_be_false(self):
+        d = Dependency(attribute_key="wikidata_qid", skip_if_absent=False)
+        assert d.skip_if_absent is False
+
+
+class TestCircularDependencyError:
+    """Tests for CircularDependencyError."""
+
+    def test_is_exception(self):
+        assert issubclass(CircularDependencyError, Exception)
+
+    def test_can_raise(self):
+        with pytest.raises(CircularDependencyError):
+            raise CircularDependencyError("cycle detected")
+
+
+class TestProviderDependenciesAndOutputKeys:
+    """Tests for Provider.dependencies, output_keys, can_run."""
+
+    def _make_provider(self, name, deps=None, outputs=None):
+        class _P(Provider):
+            dependencies = deps or []
+            output_keys = outputs or []
+
+            def enrich(self, person):
+                return []
+
+        _P.name = name
+        return _P()
+
+    def test_dependencies_defaults_to_empty(self):
+        p = self._make_provider("p")
+        assert p.dependencies == []
+
+    def test_output_keys_defaults_to_empty(self):
+        p = self._make_provider("p")
+        assert p.output_keys == []
+
+    def test_can_run_no_dependencies(self):
+        p = self._make_provider("p")
+        assert p.can_run(set()) is True
+        assert p.can_run({"anything"}) is True
+
+    def test_can_run_satisfied_dependency(self):
+        p = self._make_provider("p", deps=[Dependency(attribute_key="wikidata_qid")])
+        assert p.can_run({"wikidata_qid", "other"}) is True
+
+    def test_can_run_unsatisfied_skip_if_absent_true(self):
+        p = self._make_provider("p", deps=[Dependency(attribute_key="wikidata_qid")])
+        assert p.can_run(set()) is False
+        assert p.can_run({"something_else"}) is False
+
+    def test_can_run_unsatisfied_skip_if_absent_false(self):
+        """When skip_if_absent=False, missing dep does NOT block execution."""
+        p = self._make_provider(
+            "p", deps=[Dependency(attribute_key="wikidata_qid", skip_if_absent=False)]
+        )
+        assert p.can_run(set()) is True
+
+    def test_can_run_multiple_deps_all_satisfied(self):
+        p = self._make_provider(
+            "p",
+            deps=[
+                Dependency(attribute_key="a"),
+                Dependency(attribute_key="b"),
+            ],
+        )
+        assert p.can_run({"a", "b"}) is True
+
+    def test_can_run_multiple_deps_one_missing(self):
+        p = self._make_provider(
+            "p",
+            deps=[
+                Dependency(attribute_key="a"),
+                Dependency(attribute_key="b"),
+            ],
+        )
+        assert p.can_run({"a"}) is False
+
+    def test_can_run_mixed_skip_if_absent(self):
+        """Only skip_if_absent=True deps gate execution."""
+        p = self._make_provider(
+            "p",
+            deps=[
+                Dependency(attribute_key="a", skip_if_absent=True),
+                Dependency(attribute_key="b", skip_if_absent=False),
+            ],
+        )
+        # a present, b absent → should run (b is optional)
+        assert p.can_run({"a"}) is True
+        # a absent, b present → should not run (a is required)
+        assert p.can_run({"b"}) is False
 
 
 class TestPackageExports:
@@ -146,3 +285,9 @@ class TestPackageExports:
 
         assert EnrichmentRunner is not None
         assert ProviderRegistry is not None
+
+    def test_dependency_and_error_exported(self):
+        from src.core.enrichment import CircularDependencyError, Dependency
+
+        assert Dependency is not None
+        assert CircularDependencyError is not None
