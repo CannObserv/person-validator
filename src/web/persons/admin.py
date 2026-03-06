@@ -5,10 +5,12 @@ and WikidataCandidateReview.
 """
 
 from django.contrib import admin
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html, mark_safe
 
+from src.core.enrichment.providers.wikidata import WikidataProvider
 from src.core.enrichment.tasks import rollback_wikidata_autolink
 from src.core.logging import get_logger
 from src.web.persons.models import (
@@ -23,6 +25,9 @@ from src.web.persons.models import (
 )
 
 logger = get_logger(__name__)
+
+# Statuses that have been resolved and should not accept further actions.
+_RESOLVED_STATUSES = frozenset({"accepted", "confirmed", "rejected", "skipped"})
 
 
 class PersonNameInline(admin.TabularInline):
@@ -217,9 +222,10 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):  # noqa: ANN001
         """Default to showing only actionable (pending + auto_linked) reviews."""
-        qs = super().get_queryset(request)
-        # If the user has supplied any status filter in the URL, respect it.
-        if request.GET.get("status"):
+        qs = super().get_queryset(request).select_related("person", "reviewed_by")
+        # Django's ChoicesFieldListFilter generates ?status__exact=<val>; a
+        # manually typed URL may use ?status=<val>.  Either signals explicit intent.
+        if request.GET.get("status__exact") or request.GET.get("status"):
             return qs
         return qs.filter(status__in=["pending", "auto_linked"])
 
@@ -231,9 +237,16 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
 
     def review_type(self, obj):  # noqa: ANN001
         """Display a human-readable type badge based on status."""
-        if obj.status == "auto_linked":
-            return mark_safe('<span style="color:#1d76db">&#9679; Auto-linked</span>')  # noqa: S308
-        return mark_safe('<span style="color:#e67e22">&#9679; Ambiguous</span>')  # noqa: S308
+        _LABELS = {
+            "auto_linked": '<span style="color:#1d76db">&#9679; Auto-linked</span>',
+            "pending": '<span style="color:#e67e22">&#9679; Ambiguous</span>',
+            "accepted": '<span style="color:#28a745">&#9679; Accepted</span>',
+            "confirmed": '<span style="color:#17a2b8">&#9679; Confirmed</span>',
+            "rejected": '<span style="color:#dc3545">&#9679; Rejected</span>',
+            "skipped": '<span style="color:#6c757d">&#9679; Skipped</span>',
+        }
+        html = _LABELS.get(obj.status, obj.get_status_display())
+        return mark_safe(html)  # noqa: S308
 
     review_type.short_description = "Type"
 
@@ -245,12 +258,30 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
     person_link.short_description = "Person"
 
     # ------------------------------------------------------------------
+    # Change view — inject confidence constants into template context
+    # ------------------------------------------------------------------
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):  # noqa: ANN001
+        """Inject WikidataProvider confidence constants for the template."""
+        extra_context = extra_context or {}
+        extra_context["auto_link_confidence"] = WikidataProvider.AUTO_LINK_CONFIDENCE
+        extra_context["confirmed_confidence"] = WikidataProvider.CONFIRMED_CONFIDENCE
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
+
+    # ------------------------------------------------------------------
     # Form action dispatch
     # ------------------------------------------------------------------
 
     def response_change(self, request, obj):  # noqa: ANN001
         """Handle adjudication form actions: accept, reject, skip, confirm."""
         action = request.POST.get("_action")
+        if not action:
+            return super().response_change(request, obj)
+
+        # Guard against double-submit on already-resolved reviews.
+        if obj.status in _RESOLVED_STATUSES:
+            self.message_user(request, "This review has already been resolved.", level="warning")
+            return HttpResponseRedirect(request.path)
 
         if action == "accept":
             return self._handle_accept(request, obj)
@@ -261,21 +292,21 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
         if action == "skip":
             return self._handle_skip(request, obj)
 
-        # Fallback to default Django behaviour for any other submit.
+        # Unknown action — fall back to default Django behaviour.
         return super().response_change(request, obj)
 
-    def _changelist_url(self):
-        """Return the changelist URL filtered to actionable reviews."""
+    @staticmethod
+    def _changelist_url():
+        """Return the changelist URL (default actionable filter)."""
         return reverse("admin:persons_wikidatacandidatereview_changelist")
 
-    def _person_url(self, person_id):
+    @staticmethod
+    def _person_url(person_id):
         """Return the admin change URL for a person."""
         return reverse("admin:persons_person_change", args=[person_id])
 
     def _handle_accept(self, request, obj):  # noqa: ANN001
         """Accept a pending review: validate the QID, set status, trigger enrichment."""
-        from django.http import HttpResponseRedirect  # noqa: PLC0415
-
         qid = request.POST.get("linked_qid", "").strip()
         valid_qids = {c["qid"] for c in (obj.candidates or [])}
 
@@ -298,8 +329,6 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
 
     def _handle_confirm(self, request, obj):  # noqa: ANN001
         """Confirm an auto_linked review: set status to confirmed, bump confidence."""
-        from django.http import HttpResponseRedirect  # noqa: PLC0415
-
         obj.status = "confirmed"
         obj.reviewed_by = request.user
         obj.reviewed_at = timezone.now()
@@ -307,16 +336,34 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
 
         self.message_user(
             request,
-            f"Review confirmed. Confidence bumped to 0.95 for {obj.linked_qid}.",
+            f"Review confirmed. Confidence bumped to "
+            f"{WikidataProvider.CONFIRMED_CONFIDENCE} for {obj.linked_qid}.",
         )
         return HttpResponseRedirect(self._changelist_url())
 
     def _handle_reject(self, request, obj):  # noqa: ANN001
-        """Reject a review.  For auto_linked reviews, also rolls back attributes."""
-        from django.http import HttpResponseRedirect  # noqa: PLC0415
+        """Reject a review.  For auto_linked reviews, rolls back attributes first.
 
+        The rollback is attempted *before* saving the review so that a rollback
+        failure leaves the review in its prior state — the operator can retry.
+        """
         was_auto_linked = obj.status == "auto_linked"
         person_id = str(obj.person_id)
+
+        if was_auto_linked:
+            try:
+                rollback_wikidata_autolink(person_id=person_id)
+            except Exception:
+                logger.exception(
+                    "rollback_wikidata_autolink failed — review not changed",
+                    extra={"review_id": str(obj.pk), "person_id": person_id},
+                )
+                self.message_user(
+                    request,
+                    "Rollback failed. Review not changed. Check logs.",
+                    level="error",
+                )
+                return HttpResponseRedirect(request.path)
 
         obj.status = "rejected"
         obj.reviewed_by = request.user
@@ -324,20 +371,6 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
         obj.save()
 
         if was_auto_linked:
-            try:
-                rollback_wikidata_autolink(person_id=person_id)
-            except Exception:
-                logger.exception(
-                    "rollback_wikidata_autolink failed",
-                    extra={"review_id": str(obj.pk), "person_id": person_id},
-                )
-                self.message_user(
-                    request,
-                    "Review rejected, but rollback failed. Check logs.",
-                    level="warning",
-                )
-                return HttpResponseRedirect(self._person_url(person_id))
-
             self.message_user(
                 request,
                 "Auto-link rejected and rolled back. Person re-queued for manual review.",
@@ -349,8 +382,6 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
 
     def _handle_skip(self, request, obj):  # noqa: ANN001
         """Skip a review: defer it for later."""
-        from django.http import HttpResponseRedirect  # noqa: PLC0415
-
         obj.status = "skipped"
         obj.reviewed_by = request.user
         obj.reviewed_at = timezone.now()

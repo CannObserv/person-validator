@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.messages.storage.cookie import CookieStorage
 from django.test import RequestFactory
 
+from src.core.enrichment.providers.wikidata import WikidataProvider
 from src.web.persons.admin import WikidataCandidateReviewAdmin
 from src.web.persons.models import (
     Person,
@@ -191,6 +192,24 @@ class TestAdminHelperMethods:
         output = str(admin.review_type(review))
         assert "Auto-linked" in output
 
+    @pytest.mark.parametrize(
+        ("status", "expected_text"),
+        [
+            ("accepted", "Accepted"),
+            ("confirmed", "Confirmed"),
+            ("rejected", "Rejected"),
+            ("skipped", "Skipped"),
+        ],
+    )
+    def test_review_type_terminal_statuses(self, status, expected_text):
+        """Terminal statuses render their own badge, not the Ambiguous fallback."""
+        person = Person.objects.create(name="George Washington")
+        review = _make_review(person, status=status, linked_qid="Q23")
+        admin = _make_admin()
+        output = str(admin.review_type(review))
+        assert expected_text in output
+        assert "Ambiguous" not in output
+
     def test_person_link_renders_anchor(self):
         person = Person.objects.create(name="George Washington")
         review = _make_review(person)
@@ -224,8 +243,23 @@ class TestGetQuerysetDefaultFilter:
         assert str(auto.pk) in pks
         assert str(accepted.pk) not in pks
 
-    def test_custom_status_filter_bypasses_default(self, superuser, rf):
-        """Passing status__in in GET params bypasses the default filter."""
+    def test_custom_status_filter_bypasses_default_via_status_exact(self, superuser, rf):
+        """Django list_filter sidebar uses ?status__exact= to bypass the default filter."""
+        person = Person.objects.create(name="George Washington")
+        accepted = _make_review(person, status="accepted", linked_qid="Q23")
+
+        request = rf.get(
+            "/admin/persons/wikidatacandidatereview/",
+            {"status__exact": "accepted"},
+        )
+        request.user = superuser
+        admin = _make_admin()
+        qs = admin.get_queryset(request)
+        pks = list(qs.values_list("pk", flat=True))
+        assert str(accepted.pk) in pks
+
+    def test_custom_status_filter_bypasses_default_via_status(self, superuser, rf):
+        """Manually typed ?status= also bypasses the default filter."""
         person = Person.objects.create(name="George Washington")
         accepted = _make_review(person, status="accepted", linked_qid="Q23")
 
@@ -238,6 +272,45 @@ class TestGetQuerysetDefaultFilter:
         qs = admin.get_queryset(request)
         pks = list(qs.values_list("pk", flat=True))
         assert str(accepted.pk) in pks
+
+    def test_queryset_uses_select_related(self, superuser, rf):
+        """get_queryset applies select_related to avoid N+1 on person and reviewed_by."""
+        request = rf.get("/admin/persons/wikidatacandidatereview/")
+        request.user = superuser
+        admin = _make_admin()
+        qs = admin.get_queryset(request)
+        assert qs.query.select_related
+
+
+# ---------------------------------------------------------------------------
+# response_change: double-submit guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestResponseChangeResolvedGuard:
+    """Actions on already-resolved reviews are rejected with a warning."""
+
+    @pytest.mark.parametrize("resolved_status", ["accepted", "confirmed", "rejected", "skipped"])
+    def test_does_not_re_process_resolved_review(self, superuser, rf, resolved_status):
+        person = Person.objects.create(name="George Washington")
+        review = _make_review(person, status=resolved_status, linked_qid="Q23")
+
+        request = rf.post(
+            f"/admin/persons/wikidatacandidatereview/{review.pk}/change/",
+            {"_action": "accept", "linked_qid": "Q23"},
+        )
+        request.user = superuser
+        request._messages = CookieStorage(request)
+
+        admin = _make_admin()
+        with patch("src.web.persons.review_handlers.run_enrichment_for_person") as mock_run:
+            admin.response_change(request, review)
+            mock_run.assert_not_called()
+
+        review.refresh_from_db()
+        # Status must not have changed.
+        assert review.status == resolved_status
 
 
 # ---------------------------------------------------------------------------
@@ -382,12 +455,16 @@ class TestResponseChangeConfirm:
             {"_action": "confirm"},
         )
         request.user = superuser
-
         request._messages = CookieStorage(request)
 
         admin = _make_admin()
-        with patch("src.web.persons.review_handlers.bump_wikidata_confidence"):
+        with patch("src.web.persons.review_handlers.bump_wikidata_confidence") as mock_bump:
             admin.response_change(request, review)
+            # Bump is triggered via the post_save signal on status → confirmed.
+            mock_bump.assert_called_once_with(
+                person_id=str(person.pk),
+                reviewed_by_id=superuser.pk,
+            )
 
         review.refresh_from_db()
         assert review.status == "confirmed"
@@ -439,6 +516,61 @@ class TestResponseChangeAutoLinkedReject:
         assert review.status == "rejected"
         assert review.reviewed_by == superuser
         assert review.reviewed_at is not None
+
+    def test_reject_auto_linked_rollback_failure_leaves_review_unchanged(self, superuser, rf):
+        """If rollback raises, the review status is NOT saved — operator can retry."""
+        person = Person.objects.create(name="George Washington")
+        review = _make_review(
+            person,
+            status="auto_linked",
+            linked_qid="Q23",
+            candidates=AUTO_LINKED_CANDIDATES,
+        )
+
+        request = rf.post(
+            f"/admin/persons/wikidatacandidatereview/{review.pk}/change/",
+            {"_action": "reject"},
+        )
+        request.user = superuser
+        request._messages = CookieStorage(request)
+
+        admin = _make_admin()
+        with patch(
+            "src.web.persons.admin.rollback_wikidata_autolink",
+            side_effect=RuntimeError("DB error"),
+        ):
+            admin.response_change(request, review)
+
+        # Review must still be auto_linked — rollback failed before save.
+        review.refresh_from_db()
+        assert review.status == "auto_linked"
+
+
+# ---------------------------------------------------------------------------
+# change_view: confidence context injection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestChangeViewContext:
+    """change_view injects WikidataProvider confidence constants into context."""
+
+    def test_context_contains_confidence_constants(self, superuser, rf):
+        person = Person.objects.create(name="George Washington")
+        review = _make_review(person, status="pending")
+
+        request = rf.get(
+            f"/admin/persons/wikidatacandidatereview/{review.pk}/change/",
+        )
+        request.user = superuser
+        request._messages = CookieStorage(request)
+        request.session = {}  # required by admin change_view
+
+        admin = _make_admin()
+        response = admin.change_view(request, str(review.pk))
+        ctx = response.context_data
+        assert ctx["auto_link_confidence"] == WikidataProvider.AUTO_LINK_CONFIDENCE
+        assert ctx["confirmed_confidence"] == WikidataProvider.CONFIRMED_CONFIDENCE
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +660,20 @@ class TestRollbackWikidataAutolink:
         from src.core.enrichment.tasks import rollback_wikidata_autolink
 
         person = Person.objects.create(name="George Washington")
+        with patch("src.core.enrichment.tasks.run_enrichment_for_person") as mock_run:
+            rollback_wikidata_autolink(person_id=str(person.pk))
+            mock_run.assert_called_once_with(
+                person_id=str(person.pk),
+                triggered_by="rollback",
+                force_rescore=True,
+            )
+
+    def test_re_enqueues_even_when_nothing_deleted(self):
+        """Re-enqueue fires unconditionally even if no attributes exist to delete."""
+        from src.core.enrichment.tasks import rollback_wikidata_autolink
+
+        person = Person.objects.create(name="George Washington")
+        # No wikidata attributes exist for this person.
         with patch("src.core.enrichment.tasks.run_enrichment_for_person") as mock_run:
             rollback_wikidata_autolink(person_id=str(person.pk))
             mock_run.assert_called_once_with(

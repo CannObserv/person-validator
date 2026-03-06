@@ -118,8 +118,8 @@
 
         {% if original.status == "auto_linked" %}
           <p class="wdc-confidence-note">
-            This entity was auto-linked with confidence <strong>0.75</strong>.
-            Confirming will raise it to <strong>0.95</strong>.
+            This entity was auto-linked with confidence <strong>{{ auto_link_confidence }}</strong>.
+            Confirming will raise it to <strong>{{ confirmed_confidence }}</strong>.
           </p>
         {% endif %}
 
@@ -190,9 +190,7 @@
         {# ---- Action buttons ---- #}
         <div class="wdc-actions">
           {% if original.status == "pending" %}
-            <input type="submit" name="_action" value="accept"
-                   class="button default"
-                   onclick="if(!document.querySelector('[name=linked_qid]:checked')){alert('Please select a candidate first.');return false;}">
+            <input type="submit" name="_action" value="accept" class="button default">
             <input type="submit" name="_action" value="reject" class="button">
             <input type="submit" name="_action" value="skip" class="button">
           {% elif original.status == "auto_linked" %}
