@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.management import call_command
+from django.db import IntegrityError
 
 from src.web.persons.models import ExternalIdentifierProperty, ExternalPlatform
 
@@ -35,8 +36,6 @@ class TestExternalIdentifierPropertyModel:
 
     def test_wikidata_property_id_unique(self):
         """Two properties cannot share the same wikidata_property_id."""
-        from django.db import IntegrityError
-
         ExternalIdentifierProperty.objects.create(
             wikidata_property_id="P214",
             slug="viaf-cluster-id",
@@ -51,8 +50,6 @@ class TestExternalIdentifierPropertyModel:
 
     def test_slug_unique(self):
         """Two properties cannot share the same slug."""
-        from django.db import IntegrityError
-
         ExternalIdentifierProperty.objects.create(
             wikidata_property_id="P214",
             slug="viaf-cluster-id",
@@ -183,6 +180,40 @@ class TestSlugGeneration:
         from src.web.persons.management.commands.sync_wikidata_properties import generate_slug
 
         assert generate_slug("(special) label!") == "special-label"
+
+
+class TestExtractQid:
+    """Tests for the _extract_qid helper."""
+
+    def test_extracts_qid_from_uri(self):
+        from src.web.persons.management.commands.sync_wikidata_properties import _extract_qid
+
+        assert _extract_qid("http://www.wikidata.org/entity/Q19595382") == "Q19595382"
+
+    def test_extracts_pid_from_uri(self):
+        from src.web.persons.management.commands.sync_wikidata_properties import _extract_qid
+
+        assert _extract_qid("http://www.wikidata.org/entity/P214") == "P214"
+
+    def test_plain_qid_passthrough(self):
+        from src.web.persons.management.commands.sync_wikidata_properties import _extract_qid
+
+        assert _extract_qid("Q19595382") == "Q19595382"
+
+    def test_trailing_slash_returns_empty(self):
+        from src.web.persons.management.commands.sync_wikidata_properties import _extract_qid
+
+        assert _extract_qid("http://www.wikidata.org/entity/") == ""
+
+    def test_empty_string_returns_empty(self):
+        from src.web.persons.management.commands.sync_wikidata_properties import _extract_qid
+
+        assert _extract_qid("") == ""
+
+    def test_non_qid_token_returns_empty(self):
+        from src.web.persons.management.commands.sync_wikidata_properties import _extract_qid
+
+        assert _extract_qid("http://www.wikidata.org/entity/entity") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +394,24 @@ class TestSyncWikidataPropertiesCommand:
         assert prop.slug == "viaf-cluster-id-p214"
 
     @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
+    def test_slug_double_collision_appends_numeric_suffix(self, mock_get):
+        """If both base slug and -{property_id} slug are taken, appends numeric suffix."""
+        ExternalIdentifierProperty.objects.create(
+            wikidata_property_id="P999",
+            slug="viaf-cluster-id",
+            display="Existing base",
+        )
+        ExternalIdentifierProperty.objects.create(
+            wikidata_property_id="P998",
+            slug="viaf-cluster-id-p214",
+            display="Existing fallback",
+        )
+        mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF])
+        self._run()
+        prop = ExternalIdentifierProperty.objects.get(wikidata_property_id="P214")
+        assert prop.slug == "viaf-cluster-id-p214-2"
+
+    @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
     def test_paginates_results(self, mock_get):
         """Command fetches a second page when first page has 500 results (LIMIT rows)."""
         # Simulate two pages: first has 500 rows, second has 1 row, third empty
@@ -403,7 +452,10 @@ class TestSyncWikidataPropertiesCommand:
         """Command prints a summary with created/updated/skipped/warnings counts."""
         mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF, SPARQL_ROW_ORCID])
         output = self._run()
-        assert "Created" in output or "created" in output
+        assert "Created 2" in output
+        assert "Updated 0" in output
+        assert "Skipped 0" in output
+        assert "Warnings 0" in output
 
     @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
     def test_sets_last_synced_at(self, mock_get):
@@ -421,8 +473,6 @@ class TestSyncWikidataPropertiesLive:
 
     def test_live_sync_creates_properties(self):
         """Running against live Wikidata should create at least one property."""
-        from io import StringIO
-
         out = StringIO()
         # Use a very small limit to keep CI fast — just verify it works at all.
         call_command("sync_wikidata_properties", stdout=out, limit=10)

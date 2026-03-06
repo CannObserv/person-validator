@@ -56,7 +56,7 @@ person-validator/
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend
-│       ├── persons/          # Person, PersonName, PersonAttribute, AttributeLabel, ExternalPlatform
+│       ├── persons/          # Person, PersonName, PersonAttribute, AttributeLabel, ExternalPlatform, ExternalIdentifierProperty
 │       └── keys/             # API key model & admin management
 ├── tests/                    # Test suite (mirrors src/ structure)
 │   ├── api/                  # FastAPI tests
@@ -111,6 +111,7 @@ OR-expanded clause for (given, surname) pair matches.
 | `persons_personattribute` | persons | Enrichment data (append-only EAV); `value_type` (indexed) + `metadata` (JSONField) |
 | `persons_attributelabel` | persons | Controlled label vocabulary per `value_type` (e.g. "work", "home") |
 | `persons_externalplatform` | persons | Controlled platform/identity vocabulary for `platform_url` attributes |
+| `persons_externalidentifierproperty` | persons | Wikidata external identifier property taxonomy; used by WikidataProvider to extract and construct URLs; managed by `sync_wikidata_properties` command |
 | `persons_enrichmentrun` | persons | Audit log of provider runs (one row per person+provider invocation) |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
 

@@ -233,8 +233,8 @@ class ExternalIdentifierProperty(models.Model):
     )
     display = models.CharField(max_length=200, help_text="English property label.")
     description = models.TextField(blank=True, help_text="English property description.")
-    formatter_url = models.CharField(
-        max_length=500,
+    formatter_url = models.URLField(
+        max_length=1000,
         blank=True,
         help_text="P1630 value. Replace $1 with the identifier value to get the URL.",
     )

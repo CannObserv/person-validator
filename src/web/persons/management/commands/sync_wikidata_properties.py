@@ -13,7 +13,7 @@ import requests
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from src.core.logging import get_logger
+from src.core.logging import configure_logging, get_logger
 from src.web.persons.models import ExternalIdentifierProperty, ExternalPlatform
 
 logger = get_logger(__name__)
@@ -63,9 +63,17 @@ def generate_slug(label: str) -> str:
     return slug
 
 
+_QID_RE = re.compile(r"^[PQ]\d+$")
+
+
 def _extract_qid(uri: str) -> str:
-    """Extract the QID from a Wikidata entity URI, e.g. 'Q19595382'."""
-    return uri.rstrip("/").split("/")[-1]
+    """Extract the QID/PID from a Wikidata entity URI, e.g. 'Q19595382'.
+
+    Returns an empty string if the extracted token does not match the
+    expected QID/PID format (e.g. malformed or trailing-slash URIs).
+    """
+    token = uri.rstrip("/").split("/")[-1]
+    return token if _QID_RE.match(token) else ""
 
 
 def _fetch_page(offset: int, limit: int) -> list[dict]:
@@ -128,18 +136,28 @@ def _parse_row(row: dict) -> dict:
 
 
 def _resolve_slug(label: str, property_id: str) -> str:
-    """Generate a slug for the property, handling collisions."""
+    """Generate a slug for the property, handling collisions.
+
+    If the base slug collides with a different property, appends
+    ``-{property_id_lower}`` (e.g. ``viaf-cluster-id-p214``). If the
+    fallback slug also collides, appends a numeric suffix until unique.
+    """
     base_slug = generate_slug(label)
-    # Check if slug exists for a *different* property_id
-    collision = (
-        ExternalIdentifierProperty.objects.filter(slug=base_slug)
+    taken = set(
+        ExternalIdentifierProperty.objects.filter(slug__startswith=base_slug)
         .exclude(wikidata_property_id=property_id)
-        .first()
+        .values_list("slug", flat=True)
     )
-    if collision is None:
+    if base_slug not in taken:
         return base_slug
-    # Append property_id (lowercased) to disambiguate
-    return f"{base_slug}-{property_id.lower()}"
+    fallback = f"{base_slug}-{property_id.lower()}"
+    if fallback not in taken:
+        return fallback
+    # Last-resort: numeric suffix
+    i = 2
+    while f"{fallback}-{i}" in taken:
+        i += 1
+    return f"{fallback}-{i}"
 
 
 def _auto_link_platform(prop: ExternalIdentifierProperty) -> bool:
@@ -168,14 +186,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        configure_logging()
         limit = options["limit"]
         offset = 0
         created = updated = skipped = warnings = auto_linked = 0
-        now = timezone.now()
 
         self.stdout.write("Fetching Wikidata external identifier properties...")
 
         while True:
+            now = timezone.now()
             rows = _fetch_page(offset, limit)
             if not rows:
                 break
@@ -192,7 +211,7 @@ class Command(BaseCommand):
                 label = parsed["label"]
 
                 if not property_id or not label:
-                    warnings += 1
+                    skipped += 1
                     continue
 
                 slug = _resolve_slug(label, property_id)
