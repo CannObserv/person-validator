@@ -49,10 +49,10 @@ person-validator/
 │   │   └── enrichment/       # Enrichment provider framework
 │   │       ├── __init__.py   # Public re-exports (all types, Provider, EnrichmentRunner, …)
 │   │       ├── attribute_types.py  # Pydantic discriminated union; VALUE_TYPE_CHOICES, LABELABLE_TYPES
-│   │       ├── base.py       # Provider ABC, EnrichmentResult, EnrichmentWarning, EnrichmentRunResult
+│   │       ├── base.py       # Provider ABC (dependencies, output_keys, can_run, refresh_interval), Dependency, CircularDependencyError, PersonData, EnrichmentResult, EnrichmentRunResult
 │   │       ├── name_utils.py # infer_name_type — name type heuristic for provider-created names
 │   │       ├── registry.py   # ProviderRegistry — register/enable/disable providers
-│   │       └── runner.py     # EnrichmentRunner — validate, strip labels/platforms, persist
+│   │       └── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend

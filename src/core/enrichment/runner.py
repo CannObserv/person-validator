@@ -62,6 +62,13 @@ def _resolve_execution_rounds(providers: list[Provider]) -> list[list[Provider]]
     for consumer in providers:
         for dep in consumer.dependencies:
             producers = key_to_producers.get(dep.attribute_key, [])
+            if not producers:
+                logger.debug(
+                    "Provider '%s' depends on key '%s' which no registered provider produces;"
+                    " dependency will be resolved at runtime from existing attributes.",
+                    consumer.name,
+                    dep.attribute_key,
+                )
             for producer in producers:
                 if producer.name != consumer.name and consumer.name not in adj[producer.name]:
                     adj[producer.name].add(consumer.name)
@@ -432,6 +439,12 @@ class EnrichmentRunner:
         if provider_names is not None:
             name_set = set(provider_names)
             candidates = [p for p in candidates if p.name in name_set]
+            unmatched = name_set - {p.name for p in candidates}
+            if unmatched:
+                logger.warning(
+                    "provider_names contains names not found among enabled providers: %s",
+                    sorted(unmatched),
+                )
 
         # Load vocab sets once per run.
         label_cache: dict[str, set[str]] = {vt: _load_active_labels(vt) for vt in LABELABLE_TYPES}
@@ -442,12 +455,16 @@ class EnrichmentRunner:
 
         results: dict[str, EnrichmentRunResult] = {}
 
-        for round_providers in rounds:
-            # Refresh existing_attributes before each round so can_run() is current.
-            person.existing_attributes = _load_existing_attributes(person.id)
+        for round_index, round_providers in enumerate(rounds):
+            # Refresh existing_attributes before round N+1 so that can_run() checks
+            # for downstream providers reflect attributes written in round N.
+            # Round 0 uses whatever the caller already populated (typically empty).
+            if round_index > 0:
+                person.existing_attributes = _load_existing_attributes(person.id)
 
-            runnable = [p for p in round_providers if p.can_run(person.attribute_keys())]
-            skipped = [p for p in round_providers if not p.can_run(person.attribute_keys())]
+            current_keys = person.attribute_keys()
+            runnable = [p for p in round_providers if p.can_run(current_keys)]
+            skipped = [p for p in round_providers if not p.can_run(current_keys)]
 
             for provider in skipped:
                 logger.info("Provider '%s' skipped: unmet dependencies", provider.name)
@@ -460,9 +477,8 @@ class EnrichmentRunner:
                 )
 
             if len(runnable) <= 1:
-                # Single provider: run inline to avoid thread overhead and SQLite
-                # locking issues (SQLite cannot handle concurrent writes from
-                # multiple threads when a test transaction is open).
+                # Single provider: run inline — no parallelism benefit and avoids
+                # thread-pool overhead for the common case.
                 for provider in runnable:
                     try:
                         run_result = _run_single_provider(

@@ -1,5 +1,7 @@
 """Tests for base enrichment dataclasses, Provider ABC, and package exports."""
 
+from datetime import timedelta
+
 import pytest
 
 from src.core.enrichment.base import (
@@ -247,6 +249,44 @@ class TestProviderDependenciesAndOutputKeys:
         assert p.can_run({"a"}) is True
         # a absent, b present → should not run (a is required)
         assert p.can_run({"b"}) is False
+
+    def test_output_keys_and_dependencies_are_class_vars_not_shared(self):
+        """Subclasses that override output_keys/dependencies don't pollute each other."""
+
+        class P1(Provider):
+            name = "p1"
+            output_keys = ["key_a"]
+            dependencies = [Dependency("dep_a")]
+
+            def enrich(self, person):
+                return []
+
+        class P2(Provider):
+            name = "p2"
+            output_keys = ["key_b"]
+            dependencies = []
+
+            def enrich(self, person):
+                return []
+
+        assert P1.output_keys == ["key_a"]
+        assert P2.output_keys == ["key_b"]
+        assert P1.dependencies == [Dependency("dep_a")]
+        assert P2.dependencies == []
+
+    def test_refresh_interval_defaults_to_seven_days(self):
+        p = self._make_provider("p")
+        assert p.refresh_interval == timedelta(days=7)
+
+    def test_refresh_interval_can_be_overridden(self):
+        class FastProvider(Provider):
+            name = "fast"
+            refresh_interval = timedelta(hours=1)
+
+            def enrich(self, person):
+                return []
+
+        assert FastProvider().refresh_interval == timedelta(hours=1)
 
 
 class TestPackageExports:

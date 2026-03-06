@@ -127,6 +127,26 @@ class TestResolveExecutionRoundsCycle:
             _resolve_execution_rounds([a, b])
 
 
+class TestResolveExecutionRoundsUnresolvedDep:
+    """Dep key with no registered producer logs a debug message."""
+
+    def test_unresolved_dep_logs_debug(self):
+        from unittest.mock import patch
+
+        a = _make_provider("a", deps=[Dependency(attribute_key="wikidata_qid")])
+        with patch("src.core.enrichment.runner.logger") as mock_logger:
+            _resolve_execution_rounds([a])
+        debug_messages = [str(call) for call in mock_logger.debug.call_args_list]
+        assert any("wikidata_qid" in msg for msg in debug_messages)
+
+    def test_unresolved_dep_does_not_raise(self):
+        """Provider with an unresolved dep is placed in round 0; can_run() handles it."""
+        a = _make_provider("a", deps=[Dependency(attribute_key="wikidata_qid")])
+        rounds = _resolve_execution_rounds([a])
+        assert len(rounds) == 1
+        assert rounds[0] == [a]
+
+
 class TestResolveExecutionRoundsMixedGraph:
     """Some providers independent, some chained."""
 

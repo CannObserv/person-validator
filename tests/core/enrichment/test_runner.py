@@ -2,14 +2,16 @@
 
 import threading
 import time
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from src.core.enrichment.base import EnrichmentRunResult
 
 import pytest
 
-from src.core.enrichment.base import Dependency, EnrichmentResult, PersonData, Provider
+from src.core.enrichment.base import (
+    Dependency,
+    EnrichmentResult,
+    EnrichmentRunResult,
+    PersonData,
+    Provider,
+)
 from src.core.enrichment.registry import ProviderRegistry
 from src.core.enrichment.runner import EnrichmentRunner
 from tests.conftest import make_person as _make_person
@@ -17,10 +19,8 @@ from tests.conftest import make_provider as _make_provider
 from tests.conftest import make_registry as _make_registry
 
 
-def _aggregate(results: dict, person_id: str = "") -> "EnrichmentRunResult":
+def _aggregate(results: dict, person_id: str = "") -> EnrichmentRunResult:
     """Aggregate a dict[str, EnrichmentRunResult] into a single EnrichmentRunResult."""
-    from src.core.enrichment.base import EnrichmentRunResult
-
     if not results:
         return EnrichmentRunResult(person_id=person_id)
     pid = next(iter(results.values())).person_id or person_id
@@ -383,6 +383,22 @@ class TestRunnerTriggeredBy:
 @pytest.mark.django_db(transaction=True)
 class TestRunnerProviderNames:
     """provider_names parameter filters which providers run."""
+
+    def test_unknown_provider_name_logs_warning(self):
+        from unittest.mock import patch
+
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="Alice Smith")
+        a = _make_provider(
+            "a", [EnrichmentResult(key="ka", value="va", value_type="text", confidence=1.0)]
+        )
+        with patch("src.core.enrichment.runner.logger") as mock_logger:
+            EnrichmentRunner(_make_registry(a)).run(
+                _make_person(id=person.pk), provider_names=["a", "nonexistent"]
+            )
+        warning_messages = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("nonexistent" in msg for msg in warning_messages)
 
     def test_all_run_when_names_is_none(self):
         from src.web.persons.models import EnrichmentRun, Person

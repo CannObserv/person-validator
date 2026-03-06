@@ -2,6 +2,8 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import ClassVar
 
 
 @dataclass
@@ -27,7 +29,20 @@ class CircularDependencyError(Exception):
 
 @dataclass
 class PersonData:
-    """Minimal read-only view of a person record passed to providers."""
+    """Minimal read-only view of a person record passed to providers.
+
+    Attributes:
+        id: The person's primary key.
+        name: Full display name.
+        given_name: Given (first) name, if known.
+        middle_name: Middle name, if known.
+        surname: Family name, if known.
+        existing_attributes: Attributes already persisted for this person.
+            Each dict has keys: key (str), value (str), value_type (str),
+            source (str). Populated by EnrichmentRunner from the DB before
+            each execution round so that providers can inspect prior enrichment
+            and so that can_run() checks reflect newly-written attributes.
+    """
 
     id: str
     name: str
@@ -35,10 +50,6 @@ class PersonData:
     middle_name: str | None = None
     surname: str | None = None
     existing_attributes: list[dict] = field(default_factory=list)
-    """Each dict has keys: key (str), value (str), value_type (str), source (str).
-
-    Populated by EnrichmentRunner from the DB before running providers.
-    """
 
     def attribute_keys(self) -> set[str]:
         """Return the set of attribute keys currently on this person."""
@@ -81,16 +92,30 @@ class EnrichmentRunResult:
 
 
 class Provider(ABC):
-    """Abstract base class for enrichment providers."""
+    """Abstract base class for enrichment providers.
+
+    Subclasses **must** declare ``name``, and **should** override
+    ``output_keys`` and ``dependencies`` with their own list literals —
+    never mutate the class-level defaults, as they are shared across all
+    subclasses that do not override them.
+    """
 
     #: Unique identifier for this provider. Must be set by each subclass.
     name: str
 
-    #: Attribute keys this provider may produce. Used to build the dependency graph.
-    output_keys: list[str] = []
+    #: Attribute keys this provider may produce. Used to build the dependency
+    #: graph. Subclasses must override with a fresh list, e.g.
+    #: ``output_keys = ["wikidata_qid", "wikidata_url"]``.
+    output_keys: ClassVar[list[str]] = []
 
     #: Dependencies this provider requires. Empty means no prerequisites.
-    dependencies: list[Dependency] = []
+    #: Subclasses must override with a fresh list, e.g.
+    #: ``dependencies = [Dependency("wikidata_qid")]``.
+    dependencies: ClassVar[list[Dependency]] = []
+
+    #: How long before a completed enrichment run is considered stale and
+    #: eligible for re-enrichment. Defaults to 7 days.
+    refresh_interval: ClassVar[timedelta] = timedelta(days=7)
 
     def can_run(self, existing_attribute_keys: set[str]) -> bool:
         """Return True if all skip_if_absent dependencies are satisfied."""
