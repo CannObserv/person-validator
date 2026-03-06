@@ -18,6 +18,21 @@ from src.core.enrichment.base import (
 )
 from src.core.enrichment.name_utils import infer_name_type
 from src.core.enrichment.providers.wikimedia_client import WikimediaHttpClient
+from src.core.enrichment.wikidata_confidence import (
+    ALIAS_CONFIDENCE as _ALIAS_CONFIDENCE,
+)
+from src.core.enrichment.wikidata_confidence import (
+    AUTO_LINK_CONFIDENCE as _AUTO_LINK_CONFIDENCE,
+)
+from src.core.enrichment.wikidata_confidence import (
+    AUTO_LINK_THRESHOLD as _AUTO_LINK_THRESHOLD,
+)
+from src.core.enrichment.wikidata_confidence import (
+    CONFIRMED_ALIAS_CONFIDENCE as _CONFIRMED_ALIAS_CONFIDENCE,
+)
+from src.core.enrichment.wikidata_confidence import (
+    CONFIRMED_CONFIDENCE as _CONFIRMED_CONFIDENCE,
+)
 from src.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -255,11 +270,12 @@ class WikidataProvider(Provider):
     dependencies: list[Dependency] = []
     required_platforms: list[str] = ["wikidata"]
 
-    AUTO_LINK_THRESHOLD = 0.85
-    AUTO_LINK_CONFIDENCE = 0.75
-    CONFIRMED_CONFIDENCE = 0.95
-    ALIAS_CONFIDENCE = 0.70
-    CONFIRMED_ALIAS_CONFIDENCE = 0.80
+    # Class-level aliases — single source of truth lives in wikidata_confidence.py.
+    AUTO_LINK_THRESHOLD: float = _AUTO_LINK_THRESHOLD
+    AUTO_LINK_CONFIDENCE: float = _AUTO_LINK_CONFIDENCE
+    CONFIRMED_CONFIDENCE: float = _CONFIRMED_CONFIDENCE
+    ALIAS_CONFIDENCE: float = _ALIAS_CONFIDENCE
+    CONFIRMED_ALIAS_CONFIDENCE: float = _CONFIRMED_ALIAS_CONFIDENCE
 
     def __init__(self, http_client: WikimediaHttpClient | None = None) -> None:
         """Initialise the provider, optionally injecting an HTTP client.

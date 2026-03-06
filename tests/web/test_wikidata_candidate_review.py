@@ -462,7 +462,7 @@ class TestBumpWikidataConfidence:
         assert float(name.confidence) == pytest.approx(0.80)
 
     def test_idempotent_on_already_confirmed_attributes(self):
-        """Calling bump twice does not raise confidence above 0.95."""
+        """Calling bump twice does not raise PersonAttribute confidence above 0.95."""
         from src.core.enrichment.tasks import bump_wikidata_confidence
         from src.web.persons.models import PersonAttribute
 
@@ -481,3 +481,23 @@ class TestBumpWikidataConfidence:
 
         attr.refresh_from_db()
         assert float(attr.confidence) == pytest.approx(0.95)
+
+    def test_idempotent_on_already_confirmed_names(self):
+        """Calling bump twice does not raise PersonName confidence above 0.80."""
+        from src.core.enrichment.tasks import bump_wikidata_confidence
+        from src.web.persons.models import PersonName
+
+        person = Person.objects.create(name="George Washington")
+        name = PersonName.objects.create(
+            person=person,
+            full_name="Geo. Washington",
+            name_type="alias",
+            source="wikidata",
+            confidence=0.70,
+        )
+
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+
+        name.refresh_from_db()
+        assert float(name.confidence) == pytest.approx(0.80)

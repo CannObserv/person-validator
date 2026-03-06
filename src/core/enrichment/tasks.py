@@ -114,7 +114,12 @@ def bump_wikidata_confidence(
     """
     from django.utils import timezone  # noqa: PLC0415
 
-    from src.core.enrichment.providers.wikidata import WikidataProvider  # noqa: PLC0415
+    from src.core.enrichment.wikidata_confidence import (  # noqa: PLC0415
+        ALIAS_CONFIDENCE,
+        AUTO_LINK_CONFIDENCE,
+        CONFIRMED_ALIAS_CONFIDENCE,
+        CONFIRMED_CONFIDENCE,
+    )
     from src.web.persons.models import PersonAttribute, PersonName  # noqa: PLC0415
 
     now = timezone.now()
@@ -122,19 +127,19 @@ def bump_wikidata_confidence(
     updated_attrs = PersonAttribute.objects.filter(
         person_id=person_id,
         source="wikidata",
-        confidence__gte=WikidataProvider.AUTO_LINK_CONFIDENCE - 0.01,
-        confidence__lte=WikidataProvider.AUTO_LINK_CONFIDENCE + 0.01,
-    ).update(confidence=WikidataProvider.CONFIRMED_CONFIDENCE, updated_at=now)
+        confidence__gte=AUTO_LINK_CONFIDENCE - 0.01,
+        confidence__lte=AUTO_LINK_CONFIDENCE + 0.01,
+    ).update(confidence=CONFIRMED_CONFIDENCE, updated_at=now)
 
     updated_names = PersonName.objects.filter(
         person_id=person_id,
         source="wikidata",
-        confidence__gte=WikidataProvider.ALIAS_CONFIDENCE - 0.01,
-        confidence__lte=WikidataProvider.ALIAS_CONFIDENCE + 0.01,
-    ).update(confidence=WikidataProvider.CONFIRMED_ALIAS_CONFIDENCE, updated_at=now)
+        confidence__gte=ALIAS_CONFIDENCE - 0.01,
+        confidence__lte=ALIAS_CONFIDENCE + 0.01,
+    ).update(confidence=CONFIRMED_ALIAS_CONFIDENCE, updated_at=now)
 
     logger.info(
-        "Bumped Wikidata attribute confidence",
+        "Bumped Wikidata confidence (attributes + names)",
         extra={
             "person_id": person_id,
             "updated_attributes": updated_attrs,
@@ -157,20 +162,24 @@ def rollback_wikidata_autolink(*, person_id: str) -> None:
     Args:
         person_id: Primary key of the Person record.
     """
+    from src.core.enrichment.wikidata_confidence import (  # noqa: PLC0415
+        ALIAS_CONFIDENCE,
+        AUTO_LINK_CONFIDENCE,
+    )
     from src.web.persons.models import PersonAttribute, PersonName  # noqa: PLC0415
 
     deleted_attrs, _ = PersonAttribute.objects.filter(
         person_id=person_id,
         source="wikidata",
-        confidence__gte=0.74,
-        confidence__lte=0.76,
+        confidence__gte=AUTO_LINK_CONFIDENCE - 0.01,
+        confidence__lte=AUTO_LINK_CONFIDENCE + 0.01,
     ).delete()
 
     deleted_names, _ = PersonName.objects.filter(
         person_id=person_id,
         source="wikidata",
-        confidence__gte=0.69,
-        confidence__lte=0.71,
+        confidence__gte=ALIAS_CONFIDENCE - 0.01,
+        confidence__lte=ALIAS_CONFIDENCE + 0.01,
     ).delete()
 
     logger.info(
