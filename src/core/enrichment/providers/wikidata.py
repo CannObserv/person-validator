@@ -1,0 +1,773 @@
+"""WikidataProvider: search, disambiguate, link, and extract enrichment data.
+
+Round 1 provider (no dependencies).  Searches Wikidata for a matching human
+entity, scores candidates against existing person attributes, and either
+auto-links the person or creates a WikidataCandidateReview for human review.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import TYPE_CHECKING
+
+from src.core.enrichment.base import Dependency, EnrichmentResult, PersonData, Provider
+from src.core.enrichment.name_utils import infer_name_type
+from src.core.enrichment.providers.wikimedia_client import WikimediaHttpClient
+from src.core.logging import get_logger
+
+if TYPE_CHECKING:
+    pass
+
+logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Wikidata concept IDs
+# ---------------------------------------------------------------------------
+
+_HUMAN_QID = "Q5"
+_DISAMBIGUATION_QID = "Q4167410"
+
+# Wikidata property IDs
+_P31_INSTANCE_OF = "P31"
+_P569_BIRTH_DATE = "P569"
+_P570_DEATH_DATE = "P570"
+_P106_OCCUPATION = "P106"
+_P27_COUNTRY_OF_CITIZENSHIP = "P27"
+_P21_SEX_OR_GENDER = "P21"
+_P18_IMAGE = "P18"
+_P856_OFFICIAL_WEBSITE = "P856"
+
+# Date precision values in Wikidata's data model
+_PRECISION_DAY = 11
+_PRECISION_MONTH = 10
+_PRECISION_YEAR = 9
+
+
+# ---------------------------------------------------------------------------
+# Entity parsing helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_claim_qids(entity: dict, prop: str) -> list[str]:
+    """Return all QID values for a given property in an entity's claims."""
+    result = []
+    for claim in entity.get("claims", {}).get(prop, []):
+        try:
+            qid = claim["mainsnak"]["datavalue"]["value"]["id"]
+            result.append(qid)
+        except (KeyError, TypeError):
+            continue
+    return result
+
+
+def _get_claim_strings(entity: dict, prop: str) -> list[str]:
+    """Return all string/monolingual-text values for a given property."""
+    result = []
+    for claim in entity.get("claims", {}).get(prop, []):
+        try:
+            dv = claim["mainsnak"]["datavalue"]
+            if dv["type"] == "string":
+                result.append(dv["value"])
+            elif dv["type"] == "monolingualtext":
+                result.append(dv["value"]["text"])
+        except (KeyError, TypeError):
+            continue
+    return result
+
+
+def _get_claim_times(entity: dict, prop: str) -> list[dict]:
+    """Return all time claim dicts for a given property (preserving precision)."""
+    result = []
+    for claim in entity.get("claims", {}).get(prop, []):
+        try:
+            dv = claim["mainsnak"]["datavalue"]
+            if dv["type"] == "time":
+                result.append(dv["value"])
+        except (KeyError, TypeError):
+            continue
+    return result
+
+
+def _parse_date(time_value: dict) -> tuple[str | None, str | None]:
+    """Parse a Wikidata time value into (date_str, year_str).
+
+    Returns:
+        Tuple of (date_str, year_str) where:
+        - date_str is YYYY-MM-DD if precision == day, else None
+        - year_str is YYYY string if precision == year (and date_str is None)
+        Both are None if precision < year.
+    """
+    time_str = time_value.get("time", "")
+    precision = time_value.get("precision", 0)
+
+    # Wikidata time format: +YYYY-MM-DDTHH:MM:SSZ (with possible leading zeros)
+    # Negative years (BC dates) are not useful for our purposes.
+    if time_str.startswith("-"):
+        return None, None
+    if time_str.startswith("+"):
+        time_str = time_str[1:]
+
+    try:
+        year = int(time_str[:4])
+    except (ValueError, IndexError):
+        return None, None
+
+    if year <= 0:
+        return None, None
+
+    if precision >= _PRECISION_DAY:
+        # YYYY-MM-DD
+        try:
+            month = int(time_str[5:7])
+            day = int(time_str[8:10])
+            if 1 <= month <= 12 and 1 <= day <= 31:
+                return f"{year:04d}-{month:02d}-{day:02d}", None
+        except (ValueError, IndexError):
+            pass
+        return None, str(year)
+
+    if precision == _PRECISION_YEAR:
+        return None, str(year)
+
+    return None, None
+
+
+def _get_en_label(entity: dict) -> str:
+    """Return the English label of an entity, or empty string."""
+    return entity.get("labels", {}).get("en", {}).get("value", "")
+
+
+def _get_en_description(entity: dict) -> str:
+    """Return the English description of an entity, or empty string."""
+    return entity.get("descriptions", {}).get("en", {}).get("value", "")
+
+
+def _get_en_aliases(entity: dict) -> list[str]:
+    """Return all English aliases for an entity."""
+    return [a["value"] for a in entity.get("aliases", {}).get("en", [])]
+
+
+def _is_human(entity: dict) -> bool:
+    """Return True if the entity has P31=Q5 (instance of human)."""
+    return _HUMAN_QID in _get_claim_qids(entity, _P31_INSTANCE_OF)
+
+
+def _is_disambiguation_page(entity: dict) -> bool:
+    """Return True if the entity is a disambiguation page (P31=Q4167410)."""
+    return _DISAMBIGUATION_QID in _get_claim_qids(entity, _P31_INSTANCE_OF)
+
+
+def _has_wikipedia_article(entity: dict) -> bool:
+    """Return True if the entity has an English Wikipedia sitelink."""
+    return "enwiki" in entity.get("sitelinks", {})
+
+
+# ---------------------------------------------------------------------------
+# Disambiguation scoring
+# ---------------------------------------------------------------------------
+
+
+def _score_candidate(
+    entity: dict,
+    person: PersonData,
+    occupation_labels: dict[str, str],
+    nationality_labels: dict[str, str],
+) -> float:
+    """Score a Wikidata entity candidate against a person's existing attributes.
+
+    Returns a float in [0.0, 1.0].  The weights sum to 1.0:
+
+    - Birth year match (±1 year): 0.35
+    - Occupation keyword overlap:  0.25
+    - Nationality/citizenship:     0.20
+    - Name alias match:            0.15
+    - Wikipedia article exists:    0.05
+    """
+    score = 0.0
+    existing = person.existing_attributes
+
+    # --- Birth year (0.35) ---
+    birth_times = _get_claim_times(entity, _P569_BIRTH_DATE)
+    if birth_times:
+        _, year_str = _parse_date(birth_times[0])
+        date_str, _ = _parse_date(birth_times[0])
+        wd_year_str = year_str or (date_str[:4] if date_str else None)
+        if wd_year_str:
+            wd_year = int(wd_year_str)
+            person_birth_values = [
+                a["value"]
+                for a in existing
+                if "birth" in a.get("key", "").lower() and a.get("value_type") in ("date", "text")
+            ]
+            for pv in person_birth_values:
+                try:
+                    pv_year = int(str(pv)[:4])
+                    if abs(pv_year - wd_year) <= 1:
+                        score += 0.35
+                        break
+                except (ValueError, TypeError):
+                    continue
+
+    # --- Occupation (0.25) ---
+    occ_qids = _get_claim_qids(entity, _P106_OCCUPATION)
+    occ_labels_lower = {
+        occupation_labels.get(qid, "").lower() for qid in occ_qids if qid in occupation_labels
+    }
+    if occ_labels_lower:
+        text_values = " ".join(
+            a["value"].lower() for a in existing if a.get("value_type") == "text"
+        )
+        if any(label and label in text_values for label in occ_labels_lower):
+            score += 0.25
+
+    # --- Nationality (0.20) ---
+    nat_qids = _get_claim_qids(entity, _P27_COUNTRY_OF_CITIZENSHIP)
+    nat_labels_lower = {
+        nationality_labels.get(qid, "").lower() for qid in nat_qids if qid in nationality_labels
+    }
+    if nat_labels_lower:
+        location_values = " ".join(
+            a["value"].lower() for a in existing if a.get("value_type") == "location"
+        )
+        if any(label and label in location_values for label in nat_labels_lower):
+            score += 0.20
+
+    # --- Name alias match (0.15) ---
+    aliases = {a.lower() for a in _get_en_aliases(entity)}
+    aliases.add(_get_en_label(entity).lower())
+    person_names_lower = {a["full_name"].lower() for a in existing if "full_name" in a}
+    # Also check PersonData name fields directly
+    for nm in (person.name, person.given_name, person.surname):
+        if nm:
+            person_names_lower.add(nm.lower())
+    if aliases & person_names_lower:
+        score += 0.15
+
+    # --- Wikipedia article (0.05) ---
+    if _has_wikipedia_article(entity):
+        score += 0.05
+
+    return min(score, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Provider
+# ---------------------------------------------------------------------------
+
+
+class WikidataProvider(Provider):
+    """Round 1 enrichment provider: searches and links Wikidata person entities.
+
+    On a successful auto-link or confirmed-QID call, emits ``EnrichmentResult``
+    objects for core biographical attributes, enabled external identifier
+    properties, and English name aliases.
+
+    When the search is ambiguous or all candidates score below the auto-link
+    threshold, creates a ``WikidataCandidateReview`` for human adjudication
+    (Django admin) and returns an empty list.
+    """
+
+    name = "wikidata"
+    output_keys: list[str] = ["wikidata_qid", "wikidata_url"]
+    refresh_interval: timedelta = timedelta(days=7)
+    dependencies: list[Dependency] = []
+
+    AUTO_LINK_THRESHOLD = 0.85
+    AUTO_LINK_CONFIDENCE = 0.75
+    CONFIRMED_CONFIDENCE = 0.95
+    ALIAS_CONFIDENCE = 0.70
+    CONFIRMED_ALIAS_CONFIDENCE = 0.80
+
+    def __init__(self, http_client: WikimediaHttpClient | None = None) -> None:
+        """Initialise the provider, optionally injecting an HTTP client.
+
+        Args:
+            http_client: Shared :class:`WikimediaHttpClient`.  When ``None``
+                a new default client is constructed.  Injection is required for
+                unit tests that stub network calls.
+        """
+        self._client = http_client or WikimediaHttpClient()
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
+    def enrich(
+        self,
+        person: PersonData,
+        *,
+        confirmed_wikidata_qid: str | None = None,
+        force_rescore: bool = False,
+    ) -> list[EnrichmentResult]:
+        """Run Wikidata enrichment for *person*.
+
+        Args:
+            person: Snapshot of the person record.
+            confirmed_wikidata_qid: When set, skip search/scoring and extract
+                this QID directly at ``CONFIRMED_CONFIDENCE``.  Used after
+                admin accepts a pending ``WikidataCandidateReview``.
+            force_rescore: When ``True``, ignore any existing ``wikidata_qid``
+                attribute and perform a fresh search.  Used after admin rejects
+                an auto-linked review.
+
+        Returns:
+            List of :class:`~src.core.enrichment.base.EnrichmentResult` objects.
+            Empty when no match is found or a review is created for adjudication.
+        """
+        # Deferred import to avoid AppRegistryNotReady at module load time.
+        from src.web.persons.models import (  # noqa: PLC0415
+            ExternalIdentifierProperty,
+            ExternalPlatform,
+            PersonName,
+            WikidataCandidateReview,
+        )
+
+        confidence = self.AUTO_LINK_CONFIDENCE
+        alias_confidence = self.ALIAS_CONFIDENCE
+
+        if confirmed_wikidata_qid:
+            # Confirmed path: skip search, extract directly.
+            logger.info(
+                "WikidataProvider: using confirmed QID",
+                extra={"person_id": person.id, "qid": confirmed_wikidata_qid},
+            )
+            confidence = self.CONFIRMED_CONFIDENCE
+            alias_confidence = self.CONFIRMED_ALIAS_CONFIDENCE
+            entities = self._client.get_entities([confirmed_wikidata_qid])
+            entity = entities.get(confirmed_wikidata_qid)
+            if entity is None:
+                logger.warning(
+                    "WikidataProvider: confirmed QID not found",
+                    extra={"person_id": person.id, "qid": confirmed_wikidata_qid},
+                )
+                return []
+            return self._extract(
+                person=person,
+                entity=entity,
+                qid=confirmed_wikidata_qid,
+                confidence=confidence,
+                alias_confidence=alias_confidence,
+                create_review=False,
+                PersonName=PersonName,
+                ExternalIdentifierProperty=ExternalIdentifierProperty,
+                ExternalPlatform=ExternalPlatform,
+            )
+
+        # Check for an existing wikidata_qid (skip if force_rescore)
+        if not force_rescore:
+            existing_qid = next(
+                (a["value"] for a in person.existing_attributes if a.get("key") == "wikidata_qid"),
+                None,
+            )
+            if existing_qid:
+                logger.info(
+                    "WikidataProvider: person already has wikidata_qid; skipping search",
+                    extra={"person_id": person.id, "qid": existing_qid},
+                )
+                return []
+
+        # Search path
+        search_name = person.name
+        candidates_raw = self._client.search_entities(search_name, limit=10)
+
+        if not candidates_raw:
+            logger.info(
+                "WikidataProvider: no candidates returned",
+                extra={"person_id": person.id, "search_name": search_name},
+            )
+            return []
+
+        # Batch-fetch entities to check P31 and gather scoring data.
+        qids = [c["id"] for c in candidates_raw if "id" in c][:50]
+        entities = self._client.get_entities(qids)
+
+        # Filter to humans only (exclude disambiguation pages).
+        human_entities = {
+            qid: ent
+            for qid, ent in entities.items()
+            if _is_human(ent) and not _is_disambiguation_page(ent)
+        }
+
+        if not human_entities:
+            logger.info(
+                "WikidataProvider: no human candidates after filtering",
+                extra={"person_id": person.id, "search_name": search_name},
+            )
+            return []
+
+        # Resolve labels for scoring (occupation + nationality)
+        occ_labels, nat_labels = self._fetch_scoring_labels(human_entities)
+
+        # Score each candidate
+        scored: list[tuple[float, str, dict]] = []
+        for qid, entity in human_entities.items():
+            score = _score_candidate(entity, person, occ_labels, nat_labels)
+            scored.append((score, qid, entity))
+        scored.sort(key=lambda t: t[0], reverse=True)
+
+        # Build candidate dicts for review storage
+        candidate_dicts = self._build_candidate_dicts(scored, occ_labels, nat_labels)
+
+        top_score, top_qid, top_entity = scored[0]
+        above_threshold = [(s, q, e) for s, q, e in scored if s >= self.AUTO_LINK_THRESHOLD]
+
+        if top_score >= self.AUTO_LINK_THRESHOLD and len(above_threshold) == 1:
+            # Auto-link path
+            logger.info(
+                "WikidataProvider: auto-linking person",
+                extra={"person_id": person.id, "qid": top_qid, "score": top_score},
+            )
+            # Create auto_linked review (for #31 confirmation flow)
+            WikidataCandidateReview.objects.create(
+                person_id=person.id,
+                query_name=search_name,
+                candidates=candidate_dicts[:5],
+                status="auto_linked",
+                linked_qid=top_qid,
+            )
+            return self._extract(
+                person=person,
+                entity=top_entity,
+                qid=top_qid,
+                confidence=confidence,
+                alias_confidence=alias_confidence,
+                create_review=False,
+                PersonName=PersonName,
+                ExternalIdentifierProperty=ExternalIdentifierProperty,
+                ExternalPlatform=ExternalPlatform,
+            )
+
+        # Ambiguous / below-threshold path: create pending review.
+        logger.info(
+            "WikidataProvider: creating pending review",
+            extra={
+                "person_id": person.id,
+                "top_score": top_score,
+                "candidate_count": len(scored),
+            },
+        )
+        WikidataCandidateReview.objects.create(
+            person_id=person.id,
+            query_name=search_name,
+            candidates=candidate_dicts[:5],
+            status="pending",
+        )
+        return []
+
+    # ------------------------------------------------------------------
+    # Extraction
+    # ------------------------------------------------------------------
+
+    def _extract(
+        self,
+        *,
+        person: PersonData,
+        entity: dict,
+        qid: str,
+        confidence: float,
+        alias_confidence: float,
+        create_review: bool,
+        PersonName: type,
+        ExternalIdentifierProperty: type,
+        ExternalPlatform: type,
+    ) -> list[EnrichmentResult]:
+        """Extract EnrichmentResult objects from a confirmed Wikidata entity."""
+        results: list[EnrichmentResult] = []
+
+        # --- Core link attributes ---
+        results.append(
+            EnrichmentResult(
+                key="wikidata_qid", value=qid, value_type="text", confidence=confidence
+            )
+        )
+        results.append(
+            EnrichmentResult(
+                key="wikidata_url",
+                value=f"https://www.wikidata.org/wiki/{qid}",
+                value_type="platform_url",
+                confidence=confidence,
+                metadata={"platform": "wikidata"},
+            )
+        )
+
+        # --- Description ---
+        description = _get_en_description(entity)
+        if description:
+            results.append(
+                EnrichmentResult(
+                    key="description", value=description, value_type="text", confidence=confidence
+                )
+            )
+
+        # --- Birth date / year ---
+        birth_times = _get_claim_times(entity, _P569_BIRTH_DATE)
+        if birth_times:
+            date_str, year_str = _parse_date(birth_times[0])
+            if date_str:
+                results.append(
+                    EnrichmentResult(
+                        key="birth_date", value=date_str, value_type="date", confidence=confidence
+                    )
+                )
+            elif year_str:
+                results.append(
+                    EnrichmentResult(
+                        key="birth_year", value=year_str, value_type="text", confidence=confidence
+                    )
+                )
+
+        # --- Death date / year ---
+        death_times = _get_claim_times(entity, _P570_DEATH_DATE)
+        if death_times:
+            date_str, year_str = _parse_date(death_times[0])
+            if date_str:
+                results.append(
+                    EnrichmentResult(
+                        key="death_date", value=date_str, value_type="date", confidence=confidence
+                    )
+                )
+            elif year_str:
+                results.append(
+                    EnrichmentResult(
+                        key="death_year", value=year_str, value_type="text", confidence=confidence
+                    )
+                )
+
+        # --- Occupations ---
+        occ_qids = _get_claim_qids(entity, _P106_OCCUPATION)
+        if occ_qids:
+            # Fetch labels in a single batch call
+            occ_entities = self._client.get_entities(occ_qids[:50])
+            for occ_qid in occ_qids:
+                occ_entity = occ_entities.get(occ_qid)
+                if occ_entity:
+                    label = _get_en_label(occ_entity)
+                    if label:
+                        results.append(
+                            EnrichmentResult(
+                                key="occupation",
+                                value=label,
+                                value_type="text",
+                                confidence=confidence,
+                            )
+                        )
+
+        # --- Nationality ---
+        nat_qids = _get_claim_qids(entity, _P27_COUNTRY_OF_CITIZENSHIP)
+        if nat_qids:
+            nat_entities = self._client.get_entities(nat_qids[:50])
+            for nat_qid in nat_qids:
+                nat_entity = nat_entities.get(nat_qid)
+                if nat_entity:
+                    label = _get_en_label(nat_entity)
+                    if label:
+                        results.append(
+                            EnrichmentResult(
+                                key="nationality",
+                                value=label,
+                                value_type="text",
+                                confidence=confidence,
+                            )
+                        )
+
+        # --- External identifiers ---
+        results.extend(
+            self._extract_external_identifiers(
+                entity=entity,
+                confidence=confidence,
+                ExternalIdentifierProperty=ExternalIdentifierProperty,
+                ExternalPlatform=ExternalPlatform,
+            )
+        )
+
+        # --- Name aliases ---
+        self._create_aliases(
+            person=person,
+            entity=entity,
+            qid=qid,
+            alias_confidence=alias_confidence,
+            PersonName=PersonName,
+        )
+
+        return results
+
+    def _extract_external_identifiers(
+        self,
+        *,
+        entity: dict,
+        confidence: float,
+        ExternalIdentifierProperty: type,
+        ExternalPlatform: type,
+    ) -> list[EnrichmentResult]:
+        """Emit EnrichmentResults for enabled ExternalIdentifierProperty records."""
+
+        results: list[EnrichmentResult] = []
+        claims = entity.get("claims", {})
+
+        # Fetch all enabled properties in one query
+        enabled_props = {
+            prop.wikidata_property_id: prop
+            for prop in ExternalIdentifierProperty.objects.filter(is_enabled=True).select_related(
+                "platform"
+            )
+        }
+
+        for prop_id, prop in enabled_props.items():
+            if prop_id not in claims:
+                continue
+            # Get the identifier value (string type)
+            for claim in claims[prop_id]:
+                try:
+                    dv = claim["mainsnak"]["datavalue"]
+                    if dv["type"] != "string":
+                        continue
+                    identifier_value = dv["value"]
+                except (KeyError, TypeError):
+                    continue
+
+                url = prop.build_url(identifier_value)
+                if url:
+                    # Get or create the ExternalPlatform
+                    if prop.platform:
+                        platform = prop.platform
+                    else:
+                        platform, _ = ExternalPlatform.objects.get_or_create(
+                            slug=prop.slug,
+                            defaults={"display": prop.display},
+                        )
+                    results.append(
+                        EnrichmentResult(
+                            key=prop.slug,
+                            value=url,
+                            value_type="platform_url",
+                            confidence=confidence,
+                            metadata={"platform": platform.slug},
+                        )
+                    )
+                else:
+                    # No formatter_url — emit as text
+                    results.append(
+                        EnrichmentResult(
+                            key=prop.slug,
+                            value=identifier_value,
+                            value_type="text",
+                            confidence=confidence,
+                        )
+                    )
+                # Only take the first value per property
+                break
+
+        return results
+
+    def _create_aliases(
+        self,
+        *,
+        person: PersonData,
+        entity: dict,
+        qid: str,
+        alias_confidence: float,
+        PersonName: type,
+    ) -> None:
+        """Create PersonName records for English aliases not already on the person."""
+        from django.utils import timezone  # noqa: PLC0415
+
+        aliases = _get_en_aliases(entity)
+        existing_names = set(
+            PersonName.objects.filter(person_id=person.id).values_list("full_name", flat=True)
+        )
+
+        for alias in aliases:
+            if alias in existing_names:
+                continue
+            name_type = infer_name_type(alias, person.name)
+            PersonName.objects.create(
+                person_id=person.id,
+                full_name=alias,
+                name_type=name_type,
+                is_primary=False,
+                source="wikidata",
+                confidence=alias_confidence,
+                provenance={
+                    "provider": "wikidata",
+                    "wikidata_qid": qid,
+                    "wikidata_alias_lang": "en",
+                    "retrieved_at": timezone.now().isoformat(),
+                },
+            )
+            existing_names.add(alias)
+
+    # ------------------------------------------------------------------
+    # Scoring helpers
+    # ------------------------------------------------------------------
+
+    def _fetch_scoring_labels(
+        self,
+        human_entities: dict[str, dict],
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Batch-fetch English labels for occupation and nationality QIDs.
+
+        Returns:
+            Tuple of (occupation_labels, nationality_labels) where each is a
+            dict mapping QID -> English label string.
+        """
+        occ_qids: set[str] = set()
+        nat_qids: set[str] = set()
+        for entity in human_entities.values():
+            occ_qids.update(_get_claim_qids(entity, _P106_OCCUPATION))
+            nat_qids.update(_get_claim_qids(entity, _P27_COUNTRY_OF_CITIZENSHIP))
+
+        all_qids = list(occ_qids | nat_qids)
+        if not all_qids:
+            return {}, {}
+
+        label_entities = self._client.get_entities(all_qids[:50])
+        labels = {qid: _get_en_label(ent) for qid, ent in label_entities.items()}
+
+        occ_labels = {qid: labels[qid] for qid in occ_qids if qid in labels}
+        nat_labels = {qid: labels[qid] for qid in nat_qids if qid in labels}
+        return occ_labels, nat_labels
+
+    def _build_candidate_dicts(
+        self,
+        scored: list[tuple[float, str, dict]],
+        occ_labels: dict[str, str],
+        nat_labels: dict[str, str],
+    ) -> list[dict]:
+        """Build the candidate dicts stored in WikidataCandidateReview.candidates."""
+        result = []
+        for score, qid, entity in scored:
+            birth_times = _get_claim_times(entity, _P569_BIRTH_DATE)
+            birth_date, birth_year = _parse_date(birth_times[0]) if birth_times else (None, None)
+            death_times = _get_claim_times(entity, _P570_DEATH_DATE)
+            death_date, death_year = _parse_date(death_times[0]) if death_times else (None, None)
+
+            occ_qids = _get_claim_qids(entity, _P106_OCCUPATION)
+            occupations = [occ_labels[q] for q in occ_qids if q in occ_labels]
+
+            nat_qids = _get_claim_qids(entity, _P27_COUNTRY_OF_CITIZENSHIP)
+            nationality = next((nat_labels[q] for q in nat_qids if q in nat_labels), None)
+
+            sitelinks = entity.get("sitelinks", {})
+            enwiki = sitelinks.get("enwiki", {})
+            wikipedia_url = (
+                f"https://en.wikipedia.org/wiki/{enwiki['title']}" if enwiki.get("title") else None
+            )
+
+            result.append(
+                {
+                    "qid": qid,
+                    "label": _get_en_label(entity),
+                    "description": _get_en_description(entity),
+                    "score": round(score, 4),
+                    "wikipedia_url": wikipedia_url,
+                    "extract": None,
+                    "properties": {
+                        "birth_date": birth_date or birth_year,
+                        "death_date": death_date or death_year,
+                        "occupations": occupations,
+                        "nationality": nationality,
+                        "image_url": None,
+                    },
+                }
+            )
+        return result
