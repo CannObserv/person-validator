@@ -64,9 +64,14 @@ def run_enrichment_for_person(
     )
 
     # Build a registry containing all providers registered at call time.
-    # Until concrete providers exist this will be empty; once WikidataProvider
-    # and others are implemented they will register themselves here.
+    # TODO (#21): providers will self-register into a shared registry instance;
+    # until then this is empty and enrichment is a no-op.
     registry = ProviderRegistry()
+    if not registry.enabled_providers():
+        logger.warning(
+            "run_enrichment_for_person: no providers registered; enrichment is a no-op",
+            extra={"person_id": person_id, "triggered_by": triggered_by},
+        )
     runner = EnrichmentRunner(registry)
 
     try:
@@ -79,7 +84,7 @@ def run_enrichment_for_person(
         raise
 
 
-def _bump_wikidata_confidence(
+def bump_wikidata_confidence(
     *,
     person_id: str,
     reviewed_by_id: int | None,
@@ -87,8 +92,8 @@ def _bump_wikidata_confidence(
     """Raise confidence on existing Wikidata-sourced attributes from 0.75 to 0.95.
 
     Called when an admin confirms an auto-linked WikidataCandidateReview.  Updates
-    all ``PersonAttribute`` rows where ``source='wikidata'`` and ``confidence=0.75``
-    for the given person.
+    all ``PersonAttribute`` rows where ``source='wikidata'`` and ``confidence``
+    is approximately 0.75 for the given person.
 
     Args:
         person_id: Primary key of the Person record.
@@ -101,7 +106,8 @@ def _bump_wikidata_confidence(
     updated = PersonAttribute.objects.filter(
         person_id=person_id,
         source="wikidata",
-        confidence=0.75,
+        confidence__gte=0.74,
+        confidence__lte=0.76,
     ).update(confidence=0.95, updated_at=timezone.now())
 
     logger.info(

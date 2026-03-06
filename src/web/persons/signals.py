@@ -1,67 +1,66 @@
 """Django signals for the persons app."""
 
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 
 from src.core.logging import get_logger
+from src.web.persons.review_handlers import DISPATCH
 
 logger = get_logger(__name__)
 
 
 def _connect_signals() -> None:
-    """Import models and connect all signals. Called from PersonsConfig.ready()."""
-    # Import here to avoid AppRegistryNotReady errors at module load time.
+    """Connect all persons app signals.  Called from PersonsConfig.ready()."""
+    # Import deferred here to guarantee app registry is ready before the model
+    # class is resolved (this function is only ever called from ready()).
     from src.web.persons.models import WikidataCandidateReview  # noqa: PLC0415
 
-    post_save.connect(_on_review_resolved, sender=WikidataCandidateReview)
+    pre_save.connect(_on_review_pre_save, sender=WikidataCandidateReview)
+    post_save.connect(_on_review_post_save, sender=WikidataCandidateReview)
 
 
-def _on_review_resolved(
-    sender,  # noqa: ANN001
-    instance,  # noqa: ANN001
-    created: bool,
-    **kwargs,  # noqa: ANN003
+def _on_review_pre_save(
+    sender: type,
+    instance: object,
+    **kwargs: object,
 ) -> None:
+    """Snapshot the current persisted status onto the instance before saving.
+
+    Stores the value as ``instance._previous_status`` so that the post_save
+    handler can detect genuine transitions and avoid re-firing on unrelated
+    field updates to an already-terminal review.
     """
-    Dispatch the appropriate action when a review reaches a terminal status.
+    if instance.pk:  # type: ignore[union-attr]
+        try:
+            previous = (
+                sender.objects.values_list("status", flat=True).get(pk=instance.pk)  # type: ignore[union-attr]  # type: ignore[union-attr]
+            )
+        except sender.DoesNotExist:  # type: ignore[union-attr]
+            previous = None
+    else:
+        previous = None
+    instance._previous_status = previous  # type: ignore[union-attr]
 
-    Does nothing on create (only reacts to updates).
 
-    accepted  -> run full enrichment with confirmed QID (downstream providers included)
-    confirmed -> bump confidence on already-written Wikidata attributes; no re-enrichment
-    rejected  -> rollback handled directly in admin response_change() (see #31) because
-                 the signal cannot reliably inspect the previous status
+def _on_review_post_save(
+    sender: type,
+    instance: object,
+    created: bool,
+    **kwargs: object,
+) -> None:
+    """Dispatch a handler when a review transitions to a new actionable status.
+
+    Does nothing on create or when the status has not changed.  Routing is
+    table-driven via ``review_handlers.DISPATCH``.
     """
     if created:
         return
 
-    from src.core.enrichment.tasks import (  # noqa: PLC0415
-        _bump_wikidata_confidence,
-        run_enrichment_for_person,
-    )
+    previous = getattr(instance, "_previous_status", None)
+    current = instance.status  # type: ignore[union-attr]
 
-    if instance.status == "accepted" and instance.linked_qid:
-        logger.info(
-            "WikidataCandidateReview accepted; triggering enrichment",
-            extra={
-                "person_id": instance.person_id,
-                "linked_qid": instance.linked_qid,
-                "review_id": str(instance.pk),
-            },
-        )
-        run_enrichment_for_person(
-            person_id=instance.person_id,
-            triggered_by="adjudication",
-            confirmed_wikidata_qid=instance.linked_qid,
-        )
-    elif instance.status == "confirmed":
-        logger.info(
-            "WikidataCandidateReview confirmed; bumping Wikidata confidence",
-            extra={
-                "person_id": instance.person_id,
-                "review_id": str(instance.pk),
-            },
-        )
-        _bump_wikidata_confidence(
-            person_id=instance.person_id,
-            reviewed_by_id=instance.reviewed_by_id,
-        )
+    if previous == current:
+        return
+
+    handler = DISPATCH.get(current)
+    if handler is not None:
+        handler(instance)

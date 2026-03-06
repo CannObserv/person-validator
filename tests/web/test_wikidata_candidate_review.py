@@ -122,14 +122,11 @@ class TestReviewSignalNoFireOnCreate:
     """Signal does not invoke task helpers when a review is first created."""
 
     def test_signal_does_not_fire_on_create(self):
+        """post_save created=True guard prevents dispatch even for actionable statuses."""
         person = Person.objects.create(name="George Washington")
-        with (
-            patch("src.core.enrichment.tasks.run_enrichment_for_person") as mock_run,
-            patch("src.core.enrichment.tasks._bump_wikidata_confidence") as mock_bump,
-        ):
+        with patch("src.web.persons.review_handlers.handle_accepted") as mock_accepted:
             _make_review(person, status="accepted", linked_qid="Q23")
-            mock_run.assert_not_called()
-            mock_bump.assert_not_called()
+            mock_accepted.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -139,13 +136,13 @@ class TestReviewSignalNoFireOnCreate:
 
 @pytest.mark.django_db
 class TestReviewSignalAccepted:
-    """Signal calls run_enrichment_for_person when status transitions to accepted."""
+    """Signal dispatches handle_accepted when status transitions to accepted."""
 
     def test_signal_fires_on_accepted(self):
         person = Person.objects.create(name="George Washington")
         review = _make_review(person, status="pending")
 
-        with patch("src.core.enrichment.tasks.run_enrichment_for_person") as mock_run:
+        with patch("src.web.persons.review_handlers.run_enrichment_for_person") as mock_run:
             review.status = "accepted"
             review.linked_qid = "Q23"
             review.save()
@@ -161,30 +158,41 @@ class TestReviewSignalAccepted:
         person = Person.objects.create(name="George Washington")
         review = _make_review(person, status="pending")
 
-        with patch("src.core.enrichment.tasks.run_enrichment_for_person") as mock_run:
+        with patch("src.web.persons.review_handlers.run_enrichment_for_person") as mock_run:
             review.status = "accepted"
             review.linked_qid = ""
             review.save()
 
             mock_run.assert_not_called()
 
+    def test_signal_does_not_refire_on_unrelated_save(self):
+        """Saving an already-accepted review without changing status does not re-dispatch."""
+        person = Person.objects.create(name="George Washington")
+        review = _make_review(person, status="accepted", linked_qid="Q23")
+
+        with patch("src.web.persons.review_handlers.run_enrichment_for_person") as mock_run:
+            # Simulate an unrelated field update (e.g. admin sets reviewed_at)
+            review.reviewed_at = review.created_at
+            review.save()
+            mock_run.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
-# Signal: confirmed -> _bump_wikidata_confidence
+# Signal: confirmed -> bump_wikidata_confidence
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
 class TestReviewSignalConfirmed:
-    """Signal calls _bump_wikidata_confidence when status transitions to confirmed."""
+    """Signal dispatches handle_confirmed when status transitions to confirmed."""
 
     def test_signal_fires_on_confirmed(self):
         person = Person.objects.create(name="George Washington")
         review = _make_review(person, status="auto_linked", linked_qid="Q23")
 
         with (
-            patch("src.core.enrichment.tasks.run_enrichment_for_person") as mock_run,
-            patch("src.core.enrichment.tasks._bump_wikidata_confidence") as mock_bump,
+            patch("src.web.persons.review_handlers.run_enrichment_for_person") as mock_run,
+            patch("src.web.persons.review_handlers.bump_wikidata_confidence") as mock_bump,
         ):
             review.status = "confirmed"
             review.save()
@@ -203,18 +211,18 @@ class TestReviewSignalConfirmed:
 
 @pytest.mark.django_db
 class TestReviewSignalOtherStatuses:
-    """Signal does not invoke tasks for non-terminal or irrelevant status changes."""
+    """Signal does not invoke handlers for statuses not in DISPATCH."""
 
-    @pytest.mark.parametrize("status", ["pending", "rejected", "skipped"])
-    def test_signal_does_not_fire_for_status(self, status):
+    @pytest.mark.parametrize("new_status", ["rejected", "skipped"])
+    def test_signal_does_not_fire_for_status(self, new_status):
         person = Person.objects.create(name="George Washington")
         review = _make_review(person, status="pending")
 
         with (
-            patch("src.core.enrichment.tasks.run_enrichment_for_person") as mock_run,
-            patch("src.core.enrichment.tasks._bump_wikidata_confidence") as mock_bump,
+            patch("src.web.persons.review_handlers.run_enrichment_for_person") as mock_run,
+            patch("src.web.persons.review_handlers.bump_wikidata_confidence") as mock_bump,
         ):
-            review.status = status
+            review.status = new_status
             review.save()
 
             mock_run.assert_not_called()
@@ -307,17 +315,17 @@ class TestRunEnrichmentForPerson:
 
 
 # ---------------------------------------------------------------------------
-# Tasks: _bump_wikidata_confidence
+# Tasks: bump_wikidata_confidence
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
 class TestBumpWikidataConfidence:
-    """Tests for the _bump_wikidata_confidence task utility."""
+    """Tests for the bump_wikidata_confidence task utility."""
 
     def test_bumps_matching_attributes(self):
         """Updates confidence 0.75 -> 0.95 for wikidata-sourced attributes."""
-        from src.core.enrichment.tasks import _bump_wikidata_confidence
+        from src.core.enrichment.tasks import bump_wikidata_confidence
         from src.web.persons.models import PersonAttribute
 
         person = Person.objects.create(name="George Washington")
@@ -330,14 +338,14 @@ class TestBumpWikidataConfidence:
             confidence=0.75,
         )
 
-        _bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
 
         attr.refresh_from_db()
         assert float(attr.confidence) == pytest.approx(0.95)
 
     def test_does_not_touch_other_sources(self):
         """Attributes from non-wikidata sources are not updated."""
-        from src.core.enrichment.tasks import _bump_wikidata_confidence
+        from src.core.enrichment.tasks import bump_wikidata_confidence
         from src.web.persons.models import PersonAttribute
 
         person = Person.objects.create(name="George Washington")
@@ -350,14 +358,14 @@ class TestBumpWikidataConfidence:
             confidence=0.75,
         )
 
-        _bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
 
         attr.refresh_from_db()
         assert float(attr.confidence) == pytest.approx(0.75)
 
     def test_does_not_touch_already_high_confidence(self):
         """Wikidata attributes already at 0.95 are not double-updated."""
-        from src.core.enrichment.tasks import _bump_wikidata_confidence
+        from src.core.enrichment.tasks import bump_wikidata_confidence
         from src.web.persons.models import PersonAttribute
 
         person = Person.objects.create(name="George Washington")
@@ -370,14 +378,14 @@ class TestBumpWikidataConfidence:
             confidence=0.95,
         )
 
-        _bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
 
         attr.refresh_from_db()
         assert float(attr.confidence) == pytest.approx(0.95)
 
     def test_only_updates_given_person(self):
         """Attributes for other persons are not affected."""
-        from src.core.enrichment.tasks import _bump_wikidata_confidence
+        from src.core.enrichment.tasks import bump_wikidata_confidence
         from src.web.persons.models import PersonAttribute
 
         person1 = Person.objects.create(name="George Washington")
@@ -391,7 +399,7 @@ class TestBumpWikidataConfidence:
             confidence=0.75,
         )
 
-        _bump_wikidata_confidence(person_id=str(person1.pk), reviewed_by_id=None)
+        bump_wikidata_confidence(person_id=str(person1.pk), reviewed_by_id=None)
 
         attr2.refresh_from_db()
         assert float(attr2.confidence) == pytest.approx(0.75)

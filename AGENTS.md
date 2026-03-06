@@ -47,16 +47,19 @@ person-validator/
 │   │   │   ├── registry.py   # StageRegistry — config-driven pipeline assembly
 │   │   │   └── stages.py     # Concrete stages (BasicNormalization)
 │   │   └── enrichment/       # Enrichment provider framework
-│   │       ├── __init__.py   # Public re-exports (all types, Provider, EnrichmentRunner, …)
+│   │       ├── __init__.py   # Public re-exports (all types, Provider, EnrichmentRunner, run_enrichment_for_person, …)
 │   │       ├── attribute_types.py  # Pydantic discriminated union; VALUE_TYPE_CHOICES, LABELABLE_TYPES
 │   │       ├── base.py       # Provider ABC (dependencies, output_keys, can_run, refresh_interval), Dependency, CircularDependencyError, PersonData, EnrichmentResult, EnrichmentRunResult
 │   │       ├── name_utils.py # infer_name_type — name type heuristic for provider-created names
 │   │       ├── registry.py   # ProviderRegistry — register/enable/disable providers
-│   │       └── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist
+│   │       ├── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist
+│   │       └── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend
-│       ├── persons/          # Person, PersonName, PersonAttribute, AttributeLabel, ExternalPlatform, ExternalIdentifierProperty
+│       ├── persons/          # Person, PersonName, PersonAttribute, AttributeLabel, ExternalPlatform, ExternalIdentifierProperty, WikidataCandidateReview
+│       │   ├── review_handlers.py  # DISPATCH table + per-status handlers (handle_accepted, handle_confirmed)
+│       │   └── signals.py    # pre_save/post_save for WikidataCandidateReview; wired in PersonsConfig.ready()
 │       └── keys/             # API key model & admin management
 ├── tests/                    # Test suite (mirrors src/ structure)
 │   ├── api/                  # FastAPI tests
@@ -113,6 +116,7 @@ OR-expanded clause for (given, surname) pair matches.
 | `persons_externalplatform` | persons | Controlled platform/identity vocabulary for `platform_url` attributes |
 | `persons_externalidentifierproperty` | persons | Wikidata external identifier property taxonomy; used by WikidataProvider to extract and construct URLs; managed by `sync_wikidata_properties` command |
 | `persons_enrichmentrun` | persons | Audit log of provider runs (one row per person+provider invocation) |
+| `persons_wikidatacandidatereview` | persons | Ambiguous/low-confidence Wikidata search results queued for admin review; post-save signal triggers enrichment on acceptance |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
 
 **`PersonAttribute.value_type` values:** `text`, `email`, `phone`, `url`, `platform_url`, `location`, `date`.

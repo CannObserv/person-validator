@@ -27,6 +27,7 @@ from src.core.enrichment.base import (
 from src.core.enrichment.name_utils import infer_name_type
 from src.core.enrichment.registry import ProviderRegistry
 from src.core.enrichment.runner import EnrichmentRunner
+from src.core.enrichment.tasks import bump_wikidata_confidence, run_enrichment_for_person
 
 __all__ = [
     # Attribute types
@@ -53,4 +54,7 @@ __all__ = [
     # Registry & runner
     "ProviderRegistry",
     "EnrichmentRunner",
+    # Task utilities
+    "run_enrichment_for_person",
+    "bump_wikidata_confidence",
 ]
