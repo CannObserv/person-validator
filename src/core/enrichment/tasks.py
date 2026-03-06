@@ -14,6 +14,7 @@ def run_enrichment_for_person(
     person_id: str,
     triggered_by: str,
     confirmed_wikidata_qid: str | None = None,
+    force_rescore: bool = False,
 ) -> None:
     """Build a PersonData snapshot and run the full EnrichmentRunner for a person.
 
@@ -25,6 +26,9 @@ def run_enrichment_for_person(
             into PersonData.existing_attributes before providers run so that
             downstream providers whose dependency is ``wikidata_qid`` are included
             in the execution graph even if the attribute has not yet been persisted.
+        force_rescore: When True, any existing ``wikidata_qid`` attribute is stripped
+            from existing_attributes before providers run, forcing WikidataProvider
+            to perform a fresh search instead of re-using the previously linked QID.
 
     Raises:
         Person.DoesNotExist: If no person with the given ID exists.
@@ -41,6 +45,9 @@ def run_enrichment_for_person(
     person_obj = Person.objects.get(pk=person_id)
 
     existing = _load_existing_attributes(person_id)
+
+    if force_rescore:
+        existing = [a for a in existing if a.get("key") != "wikidata_qid"]
 
     if confirmed_wikidata_qid:
         # Inject a synthetic attribute so downstream providers see wikidata_qid
@@ -118,4 +125,49 @@ def bump_wikidata_confidence(
             "updated_count": updated,
             "reviewed_by_id": reviewed_by_id,
         },
+    )
+
+
+def rollback_wikidata_autolink(*, person_id: str) -> None:
+    """Delete Wikidata-sourced attributes/names written at auto-link confidence and re-queue.
+
+    Called when an admin rejects an ``auto_linked`` WikidataCandidateReview.  Removes
+    all ``PersonAttribute`` rows where ``source='wikidata'`` and ``confidence`` is
+    approximately 0.75, and ``PersonName`` rows where ``source='wikidata'`` and
+    ``confidence`` is approximately 0.70.  Then re-triggers enrichment with
+    ``force_rescore=True`` so WikidataProvider performs a fresh search instead of
+    immediately re-linking to the just-rejected QID.
+
+    Args:
+        person_id: Primary key of the Person record.
+    """
+    from src.web.persons.models import PersonAttribute, PersonName  # noqa: PLC0415
+
+    deleted_attrs, _ = PersonAttribute.objects.filter(
+        person_id=person_id,
+        source="wikidata",
+        confidence__gte=0.74,
+        confidence__lte=0.76,
+    ).delete()
+
+    deleted_names, _ = PersonName.objects.filter(
+        person_id=person_id,
+        source="wikidata",
+        confidence__gte=0.69,
+        confidence__lte=0.71,
+    ).delete()
+
+    logger.info(
+        "Rolled back Wikidata auto-link",
+        extra={
+            "person_id": person_id,
+            "deleted_attributes": deleted_attrs,
+            "deleted_names": deleted_names,
+        },
+    )
+
+    run_enrichment_for_person(
+        person_id=person_id,
+        triggered_by="rollback",
+        force_rescore=True,
     )

@@ -1,0 +1,256 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block content %}
+<style>
+  .wdc-card {
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+    padding: 1rem 1.25rem;
+    background: var(--body-bg, #fff);
+    position: relative;
+  }
+  .wdc-card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .wdc-radio {
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+  }
+  .wdc-label { font-weight: bold; font-size: 1.05em; }
+  .wdc-description { color: var(--body-quiet-color, #666); margin-left: 0.4rem; }
+  .wdc-badge {
+    display: inline-block;
+    padding: 0.15em 0.55em;
+    border-radius: 3px;
+    font-size: 0.78em;
+    font-weight: 600;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .wdc-badge-green  { background:#d4edda; color:#155724; }
+  .wdc-badge-yellow { background:#fff3cd; color:#856404; }
+  .wdc-badge-red    { background:#f8d7da; color:#721c24; }
+  .wdc-badge-blue   { background:#cce5ff; color:#004085; }
+  .wdc-facts { border-collapse: collapse; width: 100%; margin-bottom: 0.75rem; font-size: 0.9em; }
+  .wdc-facts td { padding: 0.2rem 0.5rem; vertical-align: top; border-bottom: 1px solid var(--border-color, #eee); }
+  .wdc-facts td:first-child { font-weight: 600; width: 8rem; white-space: nowrap; }
+  .wdc-image { float: right; max-width: 80px; margin: 0 0 0.5rem 0.75rem; border-radius: 3px; }
+  .wdc-extract { font-style: italic; font-size: 0.88em; color: var(--body-quiet-color, #555); margin-bottom: 0.5rem; }
+  .wdc-actions {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color, #ddd);
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .wdc-resolved-banner {
+    background: var(--darkened-bg, #f8f9fa);
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+    color: var(--body-quiet-color, #555);
+  }
+  .wdc-confidence-note {
+    font-size: 0.9em;
+    color: var(--body-quiet-color, #555);
+    margin-bottom: 0.75rem;
+  }
+  .wdc-confidence-note strong { color: var(--link-fg, #447e9b); }
+  .wdc-no-candidates { color: var(--body-quiet-color, #888); font-style: italic; }
+  .wdc-section-title { font-weight: 600; margin-bottom: 0.4rem; font-size: 0.92em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--body-quiet-color, #666); }
+  .clearfix::after { content: ""; display: table; clear: both; }
+</style>
+
+<div id="content-main">
+
+{% if original %}
+
+  {# ------------------------------------------------------------------ #}
+  {# RESOLVED banner                                                      #}
+  {# ------------------------------------------------------------------ #}
+  {% if original.status == "accepted" or original.status == "confirmed" or original.status == "rejected" or original.status == "skipped" %}
+  <div class="wdc-resolved-banner">
+    <strong>Resolved</strong> &mdash;
+    This review was resolved on {{ original.reviewed_at|date:"N j, Y \a\t P" }}
+    {% if original.reviewed_by %}by {{ original.reviewed_by }}{% endif %}.
+    Status: <strong>{{ original.get_status_display }}</strong>
+    {% if original.linked_qid %} &mdash; QID: <a href="https://www.wikidata.org/wiki/{{ original.linked_qid }}" target="_blank" rel="noopener">{{ original.linked_qid }}</a>{% endif %}
+  </div>
+  {% endif %}
+
+  {# ------------------------------------------------------------------ #}
+  {# Summary row                                                          #}
+  {# ------------------------------------------------------------------ #}
+  <table class="form-table">
+    <tbody>
+      <tr><th>Person</th><td><a href="{% url 'admin:persons_person_change' original.person_id %}">{{ original.person }}</a></td></tr>
+      <tr><th>Query name</th><td>{{ original.query_name }}</td></tr>
+      <tr><th>Status</th><td>{{ original.get_status_display }}</td></tr>
+      {% if original.linked_qid %}
+      <tr><th>Linked QID</th><td><a href="https://www.wikidata.org/wiki/{{ original.linked_qid }}" target="_blank" rel="noopener">{{ original.linked_qid }}</a></td></tr>
+      {% endif %}
+      <tr><th>Created</th><td>{{ original.created_at|date:"N j, Y \a\t P" }}</td></tr>
+    </tbody>
+  </table>
+
+  <hr style="margin: 1.5rem 0;">
+
+  {# ------------------------------------------------------------------ #}
+  {# Candidate cards                                                      #}
+  {# ------------------------------------------------------------------ #}
+  {% if not original.candidates %}
+    <p class="wdc-no-candidates">No candidates were recorded for this review.</p>
+  {% else %}
+
+    {% if original.status == "pending" or original.status == "auto_linked" %}
+      {# Actionable — render interactive form #}
+      <form method="post">
+        {% csrf_token %}
+
+        {% if original.status == "auto_linked" %}
+          <p class="wdc-confidence-note">
+            This entity was auto-linked with confidence <strong>0.75</strong>.
+            Confirming will raise it to <strong>0.95</strong>.
+          </p>
+        {% endif %}
+
+        <div class="wdc-section-title">Candidates</div>
+
+        {% for candidate in original.candidates %}
+          {% with props=candidate.properties %}
+          <div class="wdc-card">
+
+            {# Image float #}
+            {% if props.image_url %}
+              <img class="wdc-image" src="{{ props.image_url }}" alt="{{ candidate.label }}">
+            {% endif %}
+
+            <div class="wdc-card-header">
+              {% if original.status == "pending" %}
+                <input class="wdc-radio" type="radio" name="linked_qid" value="{{ candidate.qid }}" id="qid_{{ candidate.qid }}">
+              {% else %}
+                {# auto_linked — no radio, show "Currently linked" badge #}
+                <span class="wdc-badge wdc-badge-blue">&#9679; Currently linked</span>
+              {% endif %}
+
+              <div>
+                <label {% if original.status == "pending" %}for="qid_{{ candidate.qid }}"{% endif %}>
+                  <span class="wdc-label">{{ candidate.label }}</span>
+                  <span class="wdc-description">&mdash; {{ candidate.description }}</span>
+                </label>
+              </div>
+
+              {# Score badge #}
+              {% if candidate.score >= 0.85 %}
+                <span class="wdc-badge wdc-badge-green">Score: {{ candidate.score|floatformat:2 }}</span>
+              {% elif candidate.score >= 0.60 %}
+                <span class="wdc-badge wdc-badge-yellow">Score: {{ candidate.score|floatformat:2 }}</span>
+              {% else %}
+                <span class="wdc-badge wdc-badge-red">Score: {{ candidate.score|floatformat:2 }}</span>
+              {% endif %}
+            </div>
+
+            {# Facts table #}
+            <div class="clearfix">
+            <table class="wdc-facts">
+              <tbody>
+                <tr><td>Wikidata QID</td><td><a href="https://www.wikidata.org/wiki/{{ candidate.qid }}" target="_blank" rel="noopener">{{ candidate.qid }}</a></td></tr>
+                {% if props.birth_date %}<tr><td>Born</td><td>{{ props.birth_date }}</td></tr>{% endif %}
+                {% if props.death_date %}<tr><td>Died</td><td>{{ props.death_date }}</td></tr>{% endif %}
+                {% if props.occupations %}<tr><td>Occupation(s)</td><td>{{ props.occupations|join:", " }}</td></tr>{% endif %}
+                {% if props.nationality %}<tr><td>Nationality</td><td>{{ props.nationality }}</td></tr>{% endif %}
+              </tbody>
+            </table>
+
+            {# Wikipedia extract #}
+            {% if candidate.wikipedia_url %}
+              <div style="margin-bottom:0.5rem;">
+                <strong>Wikipedia:</strong>
+                <a href="{{ candidate.wikipedia_url }}" target="_blank" rel="noopener">{{ candidate.wikipedia_url }}</a>
+              </div>
+              {% if candidate.extract %}
+                <div class="wdc-extract">{{ candidate.extract|truncatechars:300 }}</div>
+              {% endif %}
+            {% endif %}
+            </div>{# clearfix #}
+
+          </div>{# .wdc-card #}
+          {% endwith %}
+        {% endfor %}
+
+        {# ---- Action buttons ---- #}
+        <div class="wdc-actions">
+          {% if original.status == "pending" %}
+            <input type="submit" name="_action" value="accept"
+                   class="button default"
+                   onclick="if(!document.querySelector('[name=linked_qid]:checked')){alert('Please select a candidate first.');return false;}">
+            <input type="submit" name="_action" value="reject" class="button">
+            <input type="submit" name="_action" value="skip" class="button">
+          {% elif original.status == "auto_linked" %}
+            <input type="submit" name="_action" value="confirm" class="button default">
+            <input type="submit" name="_action" value="reject" class="button">
+          {% endif %}
+        </div>
+
+      </form>
+
+    {% else %}
+      {# Resolved — read-only card display #}
+      {% for candidate in original.candidates %}
+        {% with props=candidate.properties %}
+        <div class="wdc-card">
+          {% if props.image_url %}
+            <img class="wdc-image" src="{{ props.image_url }}" alt="{{ candidate.label }}">
+          {% endif %}
+          <div class="wdc-card-header">
+            <span class="wdc-label">{{ candidate.label }}</span>
+            <span class="wdc-description">&mdash; {{ candidate.description }}</span>
+            {% if candidate.score >= 0.85 %}
+              <span class="wdc-badge wdc-badge-green">Score: {{ candidate.score|floatformat:2 }}</span>
+            {% elif candidate.score >= 0.60 %}
+              <span class="wdc-badge wdc-badge-yellow">Score: {{ candidate.score|floatformat:2 }}</span>
+            {% else %}
+              <span class="wdc-badge wdc-badge-red">Score: {{ candidate.score|floatformat:2 }}</span>
+            {% endif %}
+          </div>
+          <div class="clearfix">
+          <table class="wdc-facts">
+            <tbody>
+              <tr><td>Wikidata QID</td><td><a href="https://www.wikidata.org/wiki/{{ candidate.qid }}" target="_blank" rel="noopener">{{ candidate.qid }}</a></td></tr>
+              {% if props.birth_date %}<tr><td>Born</td><td>{{ props.birth_date }}</td></tr>{% endif %}
+              {% if props.death_date %}<tr><td>Died</td><td>{{ props.death_date }}</td></tr>{% endif %}
+              {% if props.occupations %}<tr><td>Occupation(s)</td><td>{{ props.occupations|join:", " }}</td></tr>{% endif %}
+              {% if props.nationality %}<tr><td>Nationality</td><td>{{ props.nationality }}</td></tr>{% endif %}
+            </tbody>
+          </table>
+          {% if candidate.wikipedia_url %}
+            <div style="margin-bottom:0.5rem;">
+              <a href="{{ candidate.wikipedia_url }}" target="_blank" rel="noopener">Wikipedia article</a>
+            </div>
+            {% if candidate.extract %}
+              <div class="wdc-extract">{{ candidate.extract|truncatechars:300 }}</div>
+            {% endif %}
+          {% endif %}
+          </div>
+        </div>
+        {% endwith %}
+      {% endfor %}
+    {% endif %}
+
+  {% endif %}{# candidates #}
+
+{% else %}
+  <p>No review selected.</p>
+{% endif %}
+
+</div>{# content-main #}
+{% endblock %}
