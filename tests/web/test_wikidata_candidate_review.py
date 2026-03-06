@@ -403,3 +403,81 @@ class TestBumpWikidataConfidence:
 
         attr2.refresh_from_db()
         assert float(attr2.confidence) == pytest.approx(0.75)
+
+    def test_bumps_alias_personname_confidence(self):
+        """PersonName rows at 0.70 (alias confidence) are bumped to 0.80."""
+        from src.core.enrichment.tasks import bump_wikidata_confidence
+        from src.web.persons.models import PersonName
+
+        person = Person.objects.create(name="George Washington")
+        name = PersonName.objects.create(
+            person=person,
+            full_name="Geo. Washington",
+            name_type="alias",
+            source="wikidata",
+            confidence=0.70,
+        )
+
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+
+        name.refresh_from_db()
+        assert float(name.confidence) == pytest.approx(0.80)
+
+    def test_does_not_bump_personname_from_other_source(self):
+        """PersonName rows from non-wikidata sources are not touched."""
+        from src.core.enrichment.tasks import bump_wikidata_confidence
+        from src.web.persons.models import PersonName
+
+        person = Person.objects.create(name="George Washington")
+        name = PersonName.objects.create(
+            person=person,
+            full_name="George Washington",
+            name_type="alias",
+            source="manual",
+            confidence=0.70,
+        )
+
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+
+        name.refresh_from_db()
+        assert float(name.confidence) == pytest.approx(0.70)
+
+    def test_does_not_bump_personname_at_high_confidence(self):
+        """PersonName rows already at 0.80 are not double-bumped."""
+        from src.core.enrichment.tasks import bump_wikidata_confidence
+        from src.web.persons.models import PersonName
+
+        person = Person.objects.create(name="George Washington")
+        name = PersonName.objects.create(
+            person=person,
+            full_name="Geo. Washington",
+            name_type="alias",
+            source="wikidata",
+            confidence=0.80,
+        )
+
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+
+        name.refresh_from_db()
+        assert float(name.confidence) == pytest.approx(0.80)
+
+    def test_idempotent_on_already_confirmed_attributes(self):
+        """Calling bump twice does not raise confidence above 0.95."""
+        from src.core.enrichment.tasks import bump_wikidata_confidence
+        from src.web.persons.models import PersonAttribute
+
+        person = Person.objects.create(name="George Washington")
+        attr = PersonAttribute.objects.create(
+            person=person,
+            key="wikidata_qid",
+            value="Q23",
+            value_type="text",
+            source="wikidata",
+            confidence=0.75,
+        )
+
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+        bump_wikidata_confidence(person_id=str(person.pk), reviewed_by_id=None)
+
+        attr.refresh_from_db()
+        assert float(attr.confidence) == pytest.approx(0.95)

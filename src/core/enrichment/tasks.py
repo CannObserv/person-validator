@@ -97,11 +97,16 @@ def bump_wikidata_confidence(
     person_id: str,
     reviewed_by_id: int | None,
 ) -> None:
-    """Raise confidence on existing Wikidata-sourced attributes from 0.75 to 0.95.
+    """Raise confidence on existing Wikidata-sourced attributes and names.
 
-    Called when an admin confirms an auto-linked WikidataCandidateReview.  Updates
-    all ``PersonAttribute`` rows where ``source='wikidata'`` and ``confidence``
-    is approximately 0.75 for the given person.
+    Called when an admin confirms an auto-linked WikidataCandidateReview.
+
+    Updates:
+    - ``PersonAttribute`` rows: ``source='wikidata'`` at ~0.75 → 0.95
+    - ``PersonName`` rows: ``source='wikidata'`` at ~0.70 → 0.80
+
+    Only records at exactly the auto-link confidence values are updated to
+    avoid overwriting records enriched by other means at different scores.
 
     Args:
         person_id: Primary key of the Person record.
@@ -109,20 +114,31 @@ def bump_wikidata_confidence(
     """
     from django.utils import timezone  # noqa: PLC0415
 
-    from src.web.persons.models import PersonAttribute  # noqa: PLC0415
+    from src.core.enrichment.providers.wikidata import WikidataProvider  # noqa: PLC0415
+    from src.web.persons.models import PersonAttribute, PersonName  # noqa: PLC0415
 
-    updated = PersonAttribute.objects.filter(
+    now = timezone.now()
+
+    updated_attrs = PersonAttribute.objects.filter(
         person_id=person_id,
         source="wikidata",
-        confidence__gte=0.74,
-        confidence__lte=0.76,
-    ).update(confidence=0.95, updated_at=timezone.now())
+        confidence__gte=WikidataProvider.AUTO_LINK_CONFIDENCE - 0.01,
+        confidence__lte=WikidataProvider.AUTO_LINK_CONFIDENCE + 0.01,
+    ).update(confidence=WikidataProvider.CONFIRMED_CONFIDENCE, updated_at=now)
+
+    updated_names = PersonName.objects.filter(
+        person_id=person_id,
+        source="wikidata",
+        confidence__gte=WikidataProvider.ALIAS_CONFIDENCE - 0.01,
+        confidence__lte=WikidataProvider.ALIAS_CONFIDENCE + 0.01,
+    ).update(confidence=WikidataProvider.CONFIRMED_ALIAS_CONFIDENCE, updated_at=now)
 
     logger.info(
         "Bumped Wikidata attribute confidence",
         extra={
             "person_id": person_id,
-            "updated_count": updated,
+            "updated_attributes": updated_attrs,
+            "updated_names": updated_names,
             "reviewed_by_id": reviewed_by_id,
         },
     )
