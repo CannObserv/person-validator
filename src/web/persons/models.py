@@ -202,6 +202,82 @@ class PersonAttribute(models.Model):
         return f"{self.key}: {self.value}"
 
 
+class ExternalIdentifierProperty(models.Model):
+    """
+    A Wikidata external identifier property applicable to human persons.
+
+    Populated and refreshed by the `sync_wikidata_properties` management command.
+    Used by WikidataProvider to determine which properties to extract and
+    how to construct platform_url values via formatter_url.
+
+    The `is_enabled` flag allows administrators to narrow which properties
+    WikidataProvider actively extracts. All imported properties are enabled
+    by default; disable selectively to suppress noisy or low-value identifiers.
+
+    Namespace note: `slug` here is independent of `ExternalPlatform.slug`.
+    When a corresponding ExternalPlatform exists (e.g. slug="viaf"), link it
+    via `platform` FK. WikidataProvider uses this FK to associate extracted
+    identifier values with the correct ExternalPlatform when creating
+    platform_url attributes.
+    """
+
+    wikidata_property_id = models.CharField(
+        max_length=20,
+        unique=True,
+        help_text='Wikidata property ID, e.g. "P214"',
+    )
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        help_text="URL-safe identifier derived from English property label.",
+    )
+    display = models.CharField(max_length=200, help_text="English property label.")
+    description = models.TextField(blank=True, help_text="English property description.")
+    formatter_url = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="P1630 value. Replace $1 with the identifier value to get the URL.",
+    )
+    subject_item_label = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="English label of the P1629 subject item (the database/system).",
+    )
+    taxonomy_categories = models.JSONField(
+        default=list,
+        help_text="List of Wikidata QIDs (P31 values) classifying this property.",
+    )
+    platform = models.ForeignKey(
+        "ExternalPlatform",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="identifier_properties",
+        help_text="Linked ExternalPlatform, if one exists for this identifier system.",
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text="When False, WikidataProvider skips this property during extraction.",
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "persons_externalidentifierproperty"
+        ordering = ["sort_order", "wikidata_property_id"]
+        verbose_name = "External Identifier Property"
+        verbose_name_plural = "External Identifier Properties"
+
+    def __str__(self) -> str:
+        return f"{self.wikidata_property_id} \u2014 {self.display}"
+
+    def build_url(self, identifier_value: str) -> str | None:
+        """Return the full URL for the given identifier value, or None if no formatter_url."""
+        if not self.formatter_url:
+            return None
+        return self.formatter_url.replace("$1", identifier_value)
+
+
 class EnrichmentRun(models.Model):
     """Audit log record for a single provider run against a person."""
 

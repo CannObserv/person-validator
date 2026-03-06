@@ -8,6 +8,7 @@ from django.contrib import admin
 from src.web.persons.models import (
     AttributeLabel,
     EnrichmentRun,
+    ExternalIdentifierProperty,
     ExternalPlatform,
     Person,
     PersonAttribute,
@@ -175,3 +176,22 @@ class EnrichmentRunAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         """Prevent deletion of audit log entries."""
         return False
+
+
+@admin.register(ExternalIdentifierProperty)
+class ExternalIdentifierPropertyAdmin(admin.ModelAdmin):
+    """Admin interface for ExternalIdentifierProperty with inline is_enabled toggle."""
+
+    list_display = (
+        "wikidata_property_id",
+        "display",
+        "is_enabled",
+        "platform",
+        "formatter_url",
+        "last_synced_at",
+    )
+    list_filter = ("is_enabled",)
+    search_fields = ("wikidata_property_id", "slug", "display", "description")
+    list_editable = ("is_enabled",)
+    readonly_fields = ("wikidata_property_id", "slug", "last_synced_at")
+    raw_id_fields = ("platform",)
