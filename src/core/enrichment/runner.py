@@ -18,6 +18,7 @@ from src.core.enrichment.base import (
     EnrichmentResult,
     EnrichmentRunResult,
     EnrichmentWarning,
+    NoMatchSignal,
     PersonData,
     Provider,
 )
@@ -302,7 +303,23 @@ def _run_single_provider(
             started_at=timezone.now(),
         )
 
-        results = provider.enrich(person)
+        try:
+            results = provider.enrich(person)
+        except NoMatchSignal:
+            logger.info(
+                "Provider '%s' reported no match for person '%s'",
+                provider.name,
+                person.id,
+            )
+            db_run.status = "no_match"
+            db_run.completed_at = timezone.now()
+            db_run.save()
+            return EnrichmentRunResult(
+                person_id=person.id,
+                attributes_saved=0,
+                attributes_skipped=0,
+                warnings=[],
+            )
 
         for result in results:
             validated = _validate_result(result)
@@ -463,11 +480,14 @@ class EnrichmentRunner:
                 person.existing_attributes = _load_existing_attributes(person.id)
 
             current_keys = person.attribute_keys()
-            runnable = [p for p in round_providers if p.can_run(current_keys)]
-            skipped = [p for p in round_providers if not p.can_run(current_keys)]
+            runnable = [p for p in round_providers if p.can_run(current_keys, platform_cache)]
+            skipped = [p for p in round_providers if not p.can_run(current_keys, platform_cache)]
 
             for provider in skipped:
-                logger.info("Provider '%s' skipped: unmet dependencies", provider.name)
+                logger.info(
+                    "Provider '%s' skipped: unmet dependencies or missing platform",
+                    provider.name,
+                )
                 _log_skipped_provider(provider, person, triggered_by)
                 results[provider.name] = EnrichmentRunResult(
                     person_id=person.id,

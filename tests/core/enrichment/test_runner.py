@@ -9,6 +9,7 @@ from src.core.enrichment.base import (
     Dependency,
     EnrichmentResult,
     EnrichmentRunResult,
+    NoMatchSignal,
     PersonData,
     Provider,
 )
@@ -599,3 +600,96 @@ class TestRunnerReturnsDictByProviderName:
         reg.register(DepProvider())
         result = EnrichmentRunner(reg).run(_make_person(id=person.pk))
         assert "dep" in result
+
+
+@pytest.mark.django_db
+class TestRunnerNoMatchSignal:
+    """Provider raising NoMatchSignal produces status='no_match' run record."""
+
+    def test_no_match_signal_creates_no_match_run(self):
+        from src.web.persons.models import EnrichmentRun, Person
+
+        class NoResultProvider(Provider):
+            name = "no_result"
+            output_keys = []
+
+            def enrich(self, person: PersonData) -> list[EnrichmentResult]:
+                raise NoMatchSignal("nothing found")
+
+        person = Person.objects.create(name="Unknown Person")
+        reg = ProviderRegistry()
+        reg.register(NoResultProvider())
+        result = EnrichmentRunner(reg).run(_make_person(id=person.pk))
+
+        run = EnrichmentRun.objects.get(person=person, provider="no_result")
+        assert run.status == "no_match"
+        assert result["no_result"].attributes_saved == 0
+
+    def test_no_match_signal_is_not_treated_as_failure(self):
+        from src.web.persons.models import EnrichmentRun, Person
+
+        class NoResultProvider(Provider):
+            name = "no_result2"
+            output_keys = []
+
+            def enrich(self, person: PersonData) -> list[EnrichmentResult]:
+                raise NoMatchSignal()
+
+        person = Person.objects.create(name="Unknown Person")
+        reg = ProviderRegistry()
+        reg.register(NoResultProvider())
+        EnrichmentRunner(reg).run(_make_person(id=person.pk))
+
+        run = EnrichmentRun.objects.get(person=person, provider="no_result2")
+        assert run.status == "no_match"  # not 'failed'
+        assert run.error == ""
+
+
+@pytest.mark.django_db
+class TestRunnerRequiredPlatforms:
+    """Providers with required_platforms are skipped when a platform is inactive."""
+
+    def test_provider_skipped_when_platform_missing(self):
+        from src.web.persons.models import EnrichmentRun, ExternalPlatform, Person
+
+        # Ensure the required platform does not exist
+        ExternalPlatform.objects.filter(slug="nonexistent-platform").delete()
+
+        class NeedsMyPlatform(Provider):
+            name = "needs_platform"
+            required_platforms: list[str] = ["nonexistent-platform"]
+            output_keys = []
+
+            def enrich(self, person: PersonData) -> list[EnrichmentResult]:
+                return []
+
+        person = Person.objects.create(name="Test Person")
+        reg = ProviderRegistry()
+        reg.register(NeedsMyPlatform())
+        EnrichmentRunner(reg).run(_make_person(id=person.pk))
+
+        run = EnrichmentRun.objects.get(person=person, provider="needs_platform")
+        assert run.status == "skipped"
+
+    def test_provider_runs_when_platform_active(self):
+        from src.web.persons.models import EnrichmentRun, ExternalPlatform, Person
+
+        ExternalPlatform.objects.get_or_create(
+            slug="my-platform", defaults={"display": "My Platform"}
+        )
+
+        class NeedsMyPlatform(Provider):
+            name = "needs_my_platform"
+            required_platforms: list[str] = ["my-platform"]
+            output_keys = []
+
+            def enrich(self, person: PersonData) -> list[EnrichmentResult]:
+                return []
+
+        person = Person.objects.create(name="Test Person")
+        reg = ProviderRegistry()
+        reg.register(NeedsMyPlatform())
+        EnrichmentRunner(reg).run(_make_person(id=person.pk))
+
+        run = EnrichmentRun.objects.get(person=person, provider="needs_my_platform")
+        assert run.status == "completed"

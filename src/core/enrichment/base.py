@@ -27,6 +27,18 @@ class CircularDependencyError(Exception):
     """Raised when provider dependencies contain a cycle."""
 
 
+class NoMatchSignal(Exception):
+    """Raised by a provider to signal that no matching record was found.
+
+    When raised from ``Provider.enrich()``, the runner writes an
+    ``EnrichmentRun`` with ``status='no_match'`` and zero attributes saved.
+    Unlike a normal exception, ``NoMatchSignal`` is not treated as a failure.
+    """
+
+    def __init__(self, message: str = "no match") -> None:
+        super().__init__(message)
+
+
 @dataclass
 class PersonData:
     """Minimal read-only view of a person record passed to providers.
@@ -117,13 +129,41 @@ class Provider(ABC):
     #: eligible for re-enrichment. Defaults to 7 days.
     refresh_interval: ClassVar[timedelta] = timedelta(days=7)
 
-    def can_run(self, existing_attribute_keys: set[str]) -> bool:
-        """Return True if all skip_if_absent dependencies are satisfied."""
-        return all(
+    #: ExternalPlatform slugs this provider requires to be active before it
+    #: can run.  The runner checks these against the active platform set at
+    #: the start of each run; any missing slug causes the provider to be
+    #: skipped (status='skipped') rather than failing at persist time.
+    #: Subclasses must override with a fresh list, e.g.
+    #: ``required_platforms: ClassVar[list[str]] = ["wikidata"]``.
+    required_platforms: ClassVar[list[str]] = []
+
+    def can_run(
+        self,
+        existing_attribute_keys: set[str],
+        active_platforms: set[str] | None = None,
+    ) -> bool:
+        """Return True if all skip_if_absent dependencies are satisfied
+        and all required_platforms are active.
+
+        Args:
+            existing_attribute_keys: Attribute keys already persisted for this person.
+            active_platforms: Set of active ExternalPlatform slugs.  When
+                ``None`` (default) the platform check is skipped — this
+                preserves backward compatibility for callers that don't yet
+                supply a platform set.
+        """
+        deps_ok = all(
             dep.attribute_key in existing_attribute_keys
             for dep in self.dependencies
             if dep.skip_if_absent
         )
+        if not deps_ok:
+            return False
+        if active_platforms is not None:
+            for slug in self.required_platforms:
+                if slug not in active_platforms:
+                    return False
+        return True
 
     @abstractmethod
     def enrich(self, person: PersonData) -> list[EnrichmentResult]:

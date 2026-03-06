@@ -8,15 +8,17 @@ auto-links the person or creates a WikidataCandidateReview for human review.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
-from src.core.enrichment.base import Dependency, EnrichmentResult, PersonData, Provider
+from src.core.enrichment.base import (
+    Dependency,
+    EnrichmentResult,
+    NoMatchSignal,
+    PersonData,
+    Provider,
+)
 from src.core.enrichment.name_utils import infer_name_type
 from src.core.enrichment.providers.wikimedia_client import WikimediaHttpClient
 from src.core.logging import get_logger
-
-if TYPE_CHECKING:
-    pass
 
 logger = get_logger(__name__)
 
@@ -33,13 +35,9 @@ _P569_BIRTH_DATE = "P569"
 _P570_DEATH_DATE = "P570"
 _P106_OCCUPATION = "P106"
 _P27_COUNTRY_OF_CITIZENSHIP = "P27"
-_P21_SEX_OR_GENDER = "P21"
-_P18_IMAGE = "P18"
-_P856_OFFICIAL_WEBSITE = "P856"
 
 # Date precision values in Wikidata's data model
 _PRECISION_DAY = 11
-_PRECISION_MONTH = 10
 _PRECISION_YEAR = 9
 
 
@@ -55,21 +53,6 @@ def _get_claim_qids(entity: dict, prop: str) -> list[str]:
         try:
             qid = claim["mainsnak"]["datavalue"]["value"]["id"]
             result.append(qid)
-        except (KeyError, TypeError):
-            continue
-    return result
-
-
-def _get_claim_strings(entity: dict, prop: str) -> list[str]:
-    """Return all string/monolingual-text values for a given property."""
-    result = []
-    for claim in entity.get("claims", {}).get(prop, []):
-        try:
-            dv = claim["mainsnak"]["datavalue"]
-            if dv["type"] == "string":
-                result.append(dv["value"])
-            elif dv["type"] == "monolingualtext":
-                result.append(dv["value"]["text"])
         except (KeyError, TypeError):
             continue
     return result
@@ -189,9 +172,8 @@ def _score_candidate(
     # --- Birth year (0.35) ---
     birth_times = _get_claim_times(entity, _P569_BIRTH_DATE)
     if birth_times:
-        _, year_str = _parse_date(birth_times[0])
-        date_str, _ = _parse_date(birth_times[0])
-        wd_year_str = year_str or (date_str[:4] if date_str else None)
+        date_str, year_str = _parse_date(birth_times[0])
+        wd_year_str = date_str[:4] if date_str else year_str
         if wd_year_str:
             wd_year = int(wd_year_str)
             person_birth_values = [
@@ -271,6 +253,7 @@ class WikidataProvider(Provider):
     output_keys: list[str] = ["wikidata_qid", "wikidata_url"]
     refresh_interval: timedelta = timedelta(days=7)
     dependencies: list[Dependency] = []
+    required_platforms: list[str] = ["wikidata"]
 
     AUTO_LINK_THRESHOLD = 0.85
     AUTO_LINK_CONFIDENCE = 0.75
@@ -317,7 +300,6 @@ class WikidataProvider(Provider):
         # Deferred import to avoid AppRegistryNotReady at module load time.
         from src.web.persons.models import (  # noqa: PLC0415
             ExternalIdentifierProperty,
-            ExternalPlatform,
             PersonName,
             WikidataCandidateReview,
         )
@@ -347,10 +329,8 @@ class WikidataProvider(Provider):
                 qid=confirmed_wikidata_qid,
                 confidence=confidence,
                 alias_confidence=alias_confidence,
-                create_review=False,
                 PersonName=PersonName,
                 ExternalIdentifierProperty=ExternalIdentifierProperty,
-                ExternalPlatform=ExternalPlatform,
             )
 
         # Check for an existing wikidata_qid (skip if force_rescore)
@@ -375,7 +355,7 @@ class WikidataProvider(Provider):
                 "WikidataProvider: no candidates returned",
                 extra={"person_id": person.id, "search_name": search_name},
             )
-            return []
+            raise NoMatchSignal(f"No Wikidata candidates for {search_name!r}")
 
         # Batch-fetch entities to check P31 and gather scoring data.
         qids = [c["id"] for c in candidates_raw if "id" in c][:50]
@@ -393,7 +373,7 @@ class WikidataProvider(Provider):
                 "WikidataProvider: no human candidates after filtering",
                 extra={"person_id": person.id, "search_name": search_name},
             )
-            return []
+            raise NoMatchSignal(f"No human Wikidata candidates for {search_name!r}")
 
         # Resolve labels for scoring (occupation + nationality)
         occ_labels, nat_labels = self._fetch_scoring_labels(human_entities)
@@ -425,16 +405,18 @@ class WikidataProvider(Provider):
                 status="auto_linked",
                 linked_qid=top_qid,
             )
+            # Merge occ + nat labels into a single preloaded dict to avoid
+            # redundant HTTP calls during extraction.
+            preloaded = {**occ_labels, **nat_labels}
             return self._extract(
                 person=person,
                 entity=top_entity,
                 qid=top_qid,
                 confidence=confidence,
                 alias_confidence=alias_confidence,
-                create_review=False,
                 PersonName=PersonName,
                 ExternalIdentifierProperty=ExternalIdentifierProperty,
-                ExternalPlatform=ExternalPlatform,
+                preloaded_labels=preloaded,
             )
 
         # Ambiguous / below-threshold path: create pending review.
@@ -466,12 +448,19 @@ class WikidataProvider(Provider):
         qid: str,
         confidence: float,
         alias_confidence: float,
-        create_review: bool,
         PersonName: type,
         ExternalIdentifierProperty: type,
-        ExternalPlatform: type,
+        preloaded_labels: dict[str, str] | None = None,
     ) -> list[EnrichmentResult]:
-        """Extract EnrichmentResult objects from a confirmed Wikidata entity."""
+        """Extract EnrichmentResult objects from a confirmed Wikidata entity.
+
+        Args:
+            preloaded_labels: Optional dict mapping QID -> English label, used
+                to resolve occupation and nationality labels without additional
+                HTTP calls.  When provided (search path), labels fetched during
+                scoring are reused.  When ``None`` (confirmed-QID path), labels
+                are fetched on demand.
+        """
         results: list[EnrichmentResult] = []
 
         # --- Core link attributes ---
@@ -536,39 +525,34 @@ class WikidataProvider(Provider):
         # --- Occupations ---
         occ_qids = _get_claim_qids(entity, _P106_OCCUPATION)
         if occ_qids:
-            # Fetch labels in a single batch call
-            occ_entities = self._client.get_entities(occ_qids[:50])
+            labels = self._resolve_labels(occ_qids, preloaded_labels)
             for occ_qid in occ_qids:
-                occ_entity = occ_entities.get(occ_qid)
-                if occ_entity:
-                    label = _get_en_label(occ_entity)
-                    if label:
-                        results.append(
-                            EnrichmentResult(
-                                key="occupation",
-                                value=label,
-                                value_type="text",
-                                confidence=confidence,
-                            )
+                label = labels.get(occ_qid, "")
+                if label:
+                    results.append(
+                        EnrichmentResult(
+                            key="occupation",
+                            value=label,
+                            value_type="text",
+                            confidence=confidence,
                         )
+                    )
 
         # --- Nationality ---
         nat_qids = _get_claim_qids(entity, _P27_COUNTRY_OF_CITIZENSHIP)
         if nat_qids:
-            nat_entities = self._client.get_entities(nat_qids[:50])
+            labels = self._resolve_labels(nat_qids, preloaded_labels)
             for nat_qid in nat_qids:
-                nat_entity = nat_entities.get(nat_qid)
-                if nat_entity:
-                    label = _get_en_label(nat_entity)
-                    if label:
-                        results.append(
-                            EnrichmentResult(
-                                key="nationality",
-                                value=label,
-                                value_type="text",
-                                confidence=confidence,
-                            )
+                label = labels.get(nat_qid, "")
+                if label:
+                    results.append(
+                        EnrichmentResult(
+                            key="nationality",
+                            value=label,
+                            value_type="text",
+                            confidence=confidence,
                         )
+                    )
 
         # --- External identifiers ---
         results.extend(
@@ -576,7 +560,6 @@ class WikidataProvider(Provider):
                 entity=entity,
                 confidence=confidence,
                 ExternalIdentifierProperty=ExternalIdentifierProperty,
-                ExternalPlatform=ExternalPlatform,
             )
         )
 
@@ -597,10 +580,18 @@ class WikidataProvider(Provider):
         entity: dict,
         confidence: float,
         ExternalIdentifierProperty: type,
-        ExternalPlatform: type,
     ) -> list[EnrichmentResult]:
-        """Emit EnrichmentResults for enabled ExternalIdentifierProperty records."""
+        """Emit EnrichmentResults for enabled ExternalIdentifierProperty records.
 
+        For each enabled property found on the entity:
+        - If the property has a ``formatter_url`` and a linked ``ExternalPlatform``
+          FK, emit a ``platform_url`` attribute.
+        - If the property has a ``formatter_url`` but no ``ExternalPlatform`` FK,
+          the identifier is skipped with a warning (platform must be configured
+          explicitly; auto-creation is not allowed).
+        - If the property has no ``formatter_url``, emit the raw identifier as a
+          ``text`` attribute.
+        """
         results: list[EnrichmentResult] = []
         claims = entity.get("claims", {})
 
@@ -627,25 +618,25 @@ class WikidataProvider(Provider):
 
                 url = prop.build_url(identifier_value)
                 if url:
-                    # Get or create the ExternalPlatform
-                    if prop.platform:
-                        platform = prop.platform
+                    if prop.platform is None:
+                        logger.warning(
+                            "WikidataProvider: skipping platform_url for '%s' "
+                            "(property has formatter_url but no ExternalPlatform FK; "
+                            "configure the platform via Django admin)",
+                            prop.slug,
+                        )
                     else:
-                        platform, _ = ExternalPlatform.objects.get_or_create(
-                            slug=prop.slug,
-                            defaults={"display": prop.display},
+                        results.append(
+                            EnrichmentResult(
+                                key=prop.slug,
+                                value=url,
+                                value_type="platform_url",
+                                confidence=confidence,
+                                metadata={"platform": prop.platform.slug},
+                            )
                         )
-                    results.append(
-                        EnrichmentResult(
-                            key=prop.slug,
-                            value=url,
-                            value_type="platform_url",
-                            confidence=confidence,
-                            metadata={"platform": platform.slug},
-                        )
-                    )
                 else:
-                    # No formatter_url — emit as text
+                    # No formatter_url — emit raw identifier as text
                     results.append(
                         EnrichmentResult(
                             key=prop.slug,
@@ -700,11 +691,47 @@ class WikidataProvider(Provider):
     # Scoring helpers
     # ------------------------------------------------------------------
 
+    def _resolve_labels(
+        self,
+        qids: list[str],
+        preloaded: dict[str, str] | None,
+    ) -> dict[str, str]:
+        """Return a QID -> English label mapping for *qids*.
+
+        Uses *preloaded* (the scoring-phase label cache) when available to
+        avoid additional HTTP calls.  Falls back to fetching any QIDs absent
+        from the cache, chunking at 50 per Wikidata API request.
+        """
+        if preloaded is not None:
+            missing = [q for q in qids if q not in preloaded]
+            if not missing:
+                return {q: preloaded[q] for q in qids if q in preloaded}
+            # Fetch only the QIDs not already in the cache
+            fetched: dict[str, str] = {}
+            for i in range(0, len(missing), 50):
+                chunk_entities = self._client.get_entities(missing[i : i + 50])
+                for qid, ent in chunk_entities.items():
+                    fetched[qid] = _get_en_label(ent)
+            combined = {**preloaded, **fetched}
+            return {q: combined[q] for q in qids if q in combined}
+
+        # No preloaded cache — fetch all
+        result: dict[str, str] = {}
+        for i in range(0, len(qids), 50):
+            chunk_entities = self._client.get_entities(qids[i : i + 50])
+            for qid, ent in chunk_entities.items():
+                result[qid] = _get_en_label(ent)
+        return result
+
     def _fetch_scoring_labels(
         self,
         human_entities: dict[str, dict],
     ) -> tuple[dict[str, str], dict[str, str]]:
         """Batch-fetch English labels for occupation and nationality QIDs.
+
+        Fetches all required QIDs in chunks of 50 (Wikidata API limit per
+        request) so that large candidate sets with many distinct occupation
+        or nationality QIDs are fully resolved.
 
         Returns:
             Tuple of (occupation_labels, nationality_labels) where each is a
@@ -720,8 +747,12 @@ class WikidataProvider(Provider):
         if not all_qids:
             return {}, {}
 
-        label_entities = self._client.get_entities(all_qids[:50])
-        labels = {qid: _get_en_label(ent) for qid, ent in label_entities.items()}
+        labels: dict[str, str] = {}
+        for i in range(0, len(all_qids), 50):
+            chunk = all_qids[i : i + 50]
+            chunk_entities = self._client.get_entities(chunk)
+            for qid, ent in chunk_entities.items():
+                labels[qid] = _get_en_label(ent)
 
         occ_labels = {qid: labels[qid] for qid in occ_qids if qid in labels}
         nat_labels = {qid: labels[qid] for qid in nat_qids if qid in labels}
@@ -762,8 +793,10 @@ class WikidataProvider(Provider):
                     "wikipedia_url": wikipedia_url,
                     "extract": None,
                     "properties": {
-                        "birth_date": birth_date or birth_year,
-                        "death_date": death_date or death_year,
+                        "birth_date": birth_date,
+                        "birth_year": birth_year,
+                        "death_date": death_date,
+                        "death_year": death_year,
                         "occupations": occupations,
                         "nationality": nationality,
                         "image_url": None,

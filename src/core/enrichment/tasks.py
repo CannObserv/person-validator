@@ -64,8 +64,9 @@ def run_enrichment_for_person(
     )
 
     # Build a registry containing all providers registered at call time.
-    # TODO (#21): providers will self-register into a shared registry instance;
-    # until then this is empty and enrichment is a no-op.
+    # WikidataProvider and other concrete providers are registered here.
+    # For now, build a fresh registry on each call; a future issue may
+    # introduce a module-level singleton populated at app startup.
     registry = ProviderRegistry()
     if not registry.enabled_providers():
         logger.warning(

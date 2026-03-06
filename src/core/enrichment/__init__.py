@@ -21,6 +21,7 @@ from src.core.enrichment.base import (
     EnrichmentResult,
     EnrichmentRunResult,
     EnrichmentWarning,
+    NoMatchSignal,
     PersonData,
     Provider,
 )
@@ -44,6 +45,7 @@ __all__ = [
     # Base abstractions
     "CircularDependencyError",
     "Dependency",
+    "NoMatchSignal",
     "EnrichmentResult",
     "EnrichmentRunResult",
     "EnrichmentWarning",

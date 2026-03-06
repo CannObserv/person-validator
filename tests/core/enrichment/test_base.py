@@ -10,6 +10,7 @@ from src.core.enrichment.base import (
     EnrichmentResult,
     EnrichmentRunResult,
     EnrichmentWarning,
+    NoMatchSignal,
     PersonData,
     Provider,
 )
@@ -173,6 +174,25 @@ class TestCircularDependencyError:
             raise CircularDependencyError("cycle detected")
 
 
+class TestNoMatchSignal:
+    """Tests for NoMatchSignal."""
+
+    def test_is_exception(self):
+        assert issubclass(NoMatchSignal, Exception)
+
+    def test_can_raise(self):
+        with pytest.raises(NoMatchSignal):
+            raise NoMatchSignal()
+
+    def test_default_message(self):
+        exc = NoMatchSignal()
+        assert str(exc) == "no match"
+
+    def test_custom_message(self):
+        exc = NoMatchSignal("no results for 'Ada Lovelace'")
+        assert "Ada Lovelace" in str(exc)
+
+
 class TestProviderDependenciesAndOutputKeys:
     """Tests for Provider.dependencies, output_keys, can_run."""
 
@@ -288,6 +308,66 @@ class TestProviderDependenciesAndOutputKeys:
 
         assert FastProvider().refresh_interval == timedelta(hours=1)
 
+    def test_required_platforms_defaults_empty(self):
+        p = self._make_provider("p")
+        assert p.required_platforms == []
+
+    def test_can_run_passes_when_required_platform_active(self):
+        class PlatformProvider(Provider):
+            name = "pp"
+            required_platforms: list[str] = ["wikidata"]
+
+            def enrich(self, person):
+                return []
+
+        p = PlatformProvider()
+        assert p.can_run(set(), active_platforms={"wikidata", "other"}) is True
+
+    def test_can_run_fails_when_required_platform_missing(self):
+        class PlatformProvider(Provider):
+            name = "pp2"
+            required_platforms: list[str] = ["wikidata"]
+
+            def enrich(self, person):
+                return []
+
+        p = PlatformProvider()
+        assert p.can_run(set(), active_platforms=set()) is False
+        assert p.can_run(set(), active_platforms={"wikipedia"}) is False
+
+    def test_can_run_skips_platform_check_when_none(self):
+        """Backward compatibility: no platform check when active_platforms is None."""
+
+        class PlatformProvider(Provider):
+            name = "pp3"
+            required_platforms: list[str] = ["wikidata"]
+
+            def enrich(self, person):
+                return []
+
+        p = PlatformProvider()
+        # No platform set supplied — check is skipped, deps still determine result.
+        assert p.can_run(set(), active_platforms=None) is True
+
+    def test_can_run_deps_and_platform_both_checked(self):
+        """Both dependency and platform checks must pass."""
+
+        class FullProvider(Provider):
+            name = "fp"
+            dependencies = [Dependency(attribute_key="wikidata_qid")]
+            required_platforms: list[str] = ["wikidata"]
+
+            def enrich(self, person):
+                return []
+
+        p = FullProvider()
+        # Platform active but dep missing
+        assert p.can_run(set(), active_platforms={"wikidata"}) is False
+        # Dep satisfied but platform missing
+        assert p.can_run({"wikidata_qid"}, active_platforms=set()) is False
+        # Both satisfied
+        assert p.can_run({"wikidata_qid"}, active_platforms={"wikidata"}) is True
+
 
 class TestPackageExports:
     """Confirm all documented names are importable from the top-level package."""
@@ -327,7 +407,8 @@ class TestPackageExports:
         assert ProviderRegistry is not None
 
     def test_dependency_and_error_exported(self):
-        from src.core.enrichment import CircularDependencyError, Dependency
+        from src.core.enrichment import CircularDependencyError, Dependency, NoMatchSignal
 
         assert Dependency is not None
         assert CircularDependencyError is not None
+        assert NoMatchSignal is not None

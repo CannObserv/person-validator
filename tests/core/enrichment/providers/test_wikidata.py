@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.core.enrichment.base import PersonData
+from src.core.enrichment.base import NoMatchSignal, PersonData
 from src.core.enrichment.providers.wikidata import (
     WikidataProvider,
     _get_en_aliases,
@@ -197,12 +197,16 @@ class TestParseDate:
         assert date_str is None
         assert year_str is None
 
-    def test_month_precision_falls_through_to_year(self):
-        """Month precision (10) returns year_str."""
+    def test_month_precision_returns_none_none(self):
+        """Month precision (10) is between year (9) and day (11) precision.
+
+        ``_parse_date`` only handles day (>=11) and year (==9).  Month
+        precision falls through both branches and returns ``(None, None)``.
+        """
         tv = {"time": "+1732-02-00T00:00:00Z", "precision": 10}
         date_str, year_str = _parse_date(tv)
         assert date_str is None
-        assert year_str is None  # precision < day and >= year not handled, returns None, None
+        assert year_str is None
 
 
 # ---------------------------------------------------------------------------
@@ -292,18 +296,17 @@ class TestWikidataProviderEnrich:
     def _make_provider(self, client: MagicMock) -> WikidataProvider:
         return WikidataProvider(http_client=client)
 
-    def test_no_candidates_returns_empty(self):
-        """When search returns no candidates, returns empty list."""
+    def test_no_candidates_raises_no_match_signal(self):
+        """When search returns no candidates, raises NoMatchSignal."""
         client = _make_fake_client(search_results=[])
         provider = self._make_provider(client)
         person = _make_person()
 
-        result = provider.enrich(person)
+        with pytest.raises(NoMatchSignal):
+            provider.enrich(person)
 
-        assert result == []
-
-    def test_no_human_candidates_returns_empty(self):
-        """When candidates exist but none are human entities, returns empty list."""
+    def test_no_human_candidates_raises_no_match_signal(self):
+        """When all candidates are non-human entities, raises NoMatchSignal."""
         entity = _make_entity(p31_qids=["Q11424"])  # film
         client = _make_fake_client(
             search_results=[{"id": "Q11424"}],
@@ -312,12 +315,11 @@ class TestWikidataProviderEnrich:
         provider = self._make_provider(client)
         person = _make_person()
 
-        result = provider.enrich(person)
-
-        assert result == []
+        with pytest.raises(NoMatchSignal):
+            provider.enrich(person)
 
     def test_disambiguation_page_filtered_out(self):
-        """Disambiguation pages (P31=Q4167410) are excluded."""
+        """Disambiguation pages (P31=Q4167410) are excluded; NoMatchSignal raised."""
         entity = _make_entity(p31_qids=["Q4167410"])
         client = _make_fake_client(
             search_results=[{"id": "Q23"}],
@@ -326,24 +328,20 @@ class TestWikidataProviderEnrich:
         provider = self._make_provider(client)
         person = _make_person()
 
-        result = provider.enrich(person)
-
-        assert result == []
+        with pytest.raises(NoMatchSignal):
+            provider.enrich(person)
 
     def test_low_score_creates_pending_review(self, db):
         """Single candidate below threshold creates WikidataCandidateReview(pending)."""
         from src.web.persons.models import Person, WikidataCandidateReview
 
         entity = _make_entity(has_enwiki=False)
+        # get_entities is called once (batch fetch); _fetch_scoring_labels skips
+        # the HTTP call when there are no occ/nat QIDs on the entity.
         client = _make_fake_client(
             search_results=[{"id": "Q23"}],
             entity_map={"Q23": entity},
         )
-        # Stub label fetching
-        client.get_entities.side_effect = [
-            {"Q23": entity},  # batch fetch for scoring
-            {},  # label fetch for occ/nat
-        ]
 
         person_obj = Person.objects.create(name="George Washington")
         person = _make_person(person_id=str(person_obj.pk))
@@ -411,14 +409,20 @@ class TestWikidataProviderEnrich:
         assert review.linked_qid == "Q23"
 
     def test_ambiguous_match_creates_pending_review(self, db):
-        """Multiple candidates above threshold creates pending review."""
+        """Multiple candidates above threshold creates pending review.
+
+        Each candidate scores 0.40 (birth_year 0.35 + wiki 0.05) + 0.15 name
+        alias match (both share label 'George Washington' with the person name)
+        = up to 0.55.  Still below the 0.85 auto-link threshold, so both end up
+        in the below-threshold bucket.  With two candidates the review is created
+        as 'pending' (not auto-linked).
+        """
         from src.web.persons.models import Person, WikidataCandidateReview
 
         entity1 = _make_entity(qid="Q23", label="George Washington", has_enwiki=True)
         entity2 = _make_entity(qid="Q24", label="George Washington II", has_enwiki=True)
 
-        # Both get wiki score only (0.05 each) — below threshold individually,
-        # so let's give them birth year matches too
+        # Give both a birth year match so scores are non-trivial.
         _tv = {"type": "time", "value": {"time": "+1732-00-00T00:00:00Z", "precision": 9}}
         entity1["claims"]["P569"] = [{"mainsnak": {"datavalue": _tv}}]
         entity2["claims"]["P569"] = [{"mainsnak": {"datavalue": _tv}}]
@@ -444,8 +448,7 @@ class TestWikidataProviderEnrich:
 
         assert result == []
         review = WikidataCandidateReview.objects.get(person=person_obj)
-        # Both score 0.40 (birth 0.35 + wiki 0.05) — above threshold
-        # Two above threshold → pending
+        # Both score < 0.85 — all below threshold → pending
         assert review.status == "pending"
 
     def test_confirmed_qid_path(self, db):
@@ -831,14 +834,16 @@ class TestExternalIdentifierExtraction:
 
         assert not any(r.key == "disabled-id" for r in results)
 
-    def test_auto_creates_external_platform_when_no_fk(self, db):
+    def test_skips_platform_url_when_no_platform_fk(self, db):
+        """platform_url attributes are skipped (with a warning) when the
+        ExternalIdentifierProperty has a formatter_url but no platform FK."""
         from src.web.persons.models import ExternalIdentifierProperty, ExternalPlatform, Person
 
         ExternalIdentifierProperty.objects.create(
             wikidata_property_id="P888",
-            slug="new-platform-id",
-            display="New Platform ID",
-            formatter_url="https://newplatform.example/$1",
+            slug="no-fk-id",
+            display="No FK Platform",
+            formatter_url="https://example.com/$1",
             platform=None,
             is_enabled=True,
         )
@@ -855,10 +860,9 @@ class TestExternalIdentifierExtraction:
 
         results = provider.enrich(person, confirmed_wikidata_qid="Q23")
 
-        r = next((r for r in results if r.key == "new-platform-id"), None)
-        assert r is not None
-        # ExternalPlatform should have been auto-created
-        assert ExternalPlatform.objects.filter(slug="new-platform-id").exists()
+        # The attribute should be absent — no auto-creation of ExternalPlatform
+        assert not any(r.key == "no-fk-id" for r in results)
+        assert not ExternalPlatform.objects.filter(slug="no-fk-id").exists()
 
 
 # ---------------------------------------------------------------------------

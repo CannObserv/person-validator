@@ -50,7 +50,8 @@ class WikimediaHttpClient:
     def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
         """Execute a GET request with retry logic for 429/503 responses."""
         delay = _BASE_DELAY
-        for attempt in range(1, _MAX_RETRIES + 2):  # attempts: 1 .. MAX_RETRIES+1
+        # Total attempts = 1 initial + _MAX_RETRIES retries
+        for attempt in range(1, _MAX_RETRIES + 2):
             response = self._session.get(url, params=params, timeout=30)
             if response.status_code not in _RETRY_STATUSES:
                 response.raise_for_status()
