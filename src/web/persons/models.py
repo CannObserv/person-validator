@@ -3,6 +3,7 @@
 # VALUE_TYPE_CHOICES is defined in src/core/enrichment/attribute_types.py and
 # imported here so the canonical list lives in one place.
 
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
@@ -320,3 +321,76 @@ class EnrichmentRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.provider} / {self.person} / {self.status}"
+
+
+class WikidataCandidateReview(models.Model):
+    """
+    Holds ambiguous or low-confidence Wikidata search results for human review.
+
+    Created by WikidataProvider when:
+    - Multiple candidates score above threshold (ambiguous match)
+    - All candidates score below auto-link threshold (uncertain match)
+
+    NOT created when:
+    - Zero candidates returned (status no_match recorded on EnrichmentRun)
+    - Single candidate scores above auto-link threshold (auto-linked directly)
+
+    After an admin accepts a candidate, a post-save signal triggers
+    WikidataProvider with the confirmed QID and then runs all downstream
+    providers (WikipediaProvider, VIAFProvider, etc.) immediately.
+    """
+
+    STATUS_CHOICES = [
+        ("pending", "Pending Review"),
+        ("auto_linked", "Auto-Linked \u2014 Awaiting Confirmation"),
+        ("accepted", "Accepted"),
+        ("confirmed", "Confirmed"),
+        ("rejected", "Rejected \u2014 No Match"),
+        ("skipped", "Skipped \u2014 Review Later"),
+    ]
+
+    id = ULIDField(primary_key=True)
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name="wikidata_reviews")
+    query_name = models.CharField(
+        max_length=500,
+        help_text="The name string passed to wbsearchentities.",
+    )
+    candidates = models.JSONField(
+        help_text=(
+            "List of candidate dicts, each with: qid (str), label (str), "
+            "description (str), score (float), wikipedia_url (str|null), "
+            "extract (str|null), properties (dict with birth_date, death_date, "
+            "occupations, nationality, image_url)."
+        ),
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    linked_qid = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text=(
+            "The accepted or auto-linked QID. "
+            "Populated at creation time for auto_linked reviews; "
+            "set by admin action for accepted reviews."
+        ),
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="wikidata_reviews",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "persons_wikidatacandidatereview"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["person", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Review for {self.person} ({self.status})"
