@@ -266,11 +266,14 @@ def _run_single_provider_in_thread(
     triggered_by: str,
     label_cache: dict[str, set[str]],
     platform_cache: set[str],
+    enrich_kwargs: dict | None = None,
 ) -> EnrichmentRunResult:
     """Thread-safe wrapper: ensures DB connections are fresh per thread."""
     close_old_connections()
     try:
-        return _run_single_provider(provider, person, triggered_by, label_cache, platform_cache)
+        return _run_single_provider(
+            provider, person, triggered_by, label_cache, platform_cache, enrich_kwargs
+        )
     finally:
         close_old_connections()
 
@@ -281,6 +284,7 @@ def _run_single_provider(
     triggered_by: str,
     label_cache: dict[str, set[str]],
     platform_cache: set[str],
+    enrich_kwargs: dict | None = None,
 ) -> EnrichmentRunResult:
     """Run one provider against a person and persist results.
 
@@ -304,7 +308,7 @@ def _run_single_provider(
         )
 
         try:
-            results = provider.enrich(person)
+            results = provider.enrich(person, **(enrich_kwargs or {}))
         except NoMatchSignal:
             logger.info(
                 "Provider '%s' reported no match for person '%s'",
@@ -432,6 +436,7 @@ class EnrichmentRunner:
         *,
         triggered_by: str = "manual",
         provider_names: list[str] | None = None,
+        provider_kwargs: dict[str, dict] | None = None,
     ) -> dict[str, EnrichmentRunResult]:
         """Run providers against a person.
 
@@ -439,6 +444,11 @@ class EnrichmentRunner:
             person: The person to enrich.
             triggered_by: Label for the audit log (e.g. "manual", "admin").
             provider_names: If given, only these providers are run. None = all enabled.
+            provider_kwargs: Optional per-provider keyword arguments forwarded to
+                ``provider.enrich()``.  Keys are provider names; values are dicts
+                of kwargs.  For example::
+
+                    provider_kwargs={"wikidata": {"confirmed_wikidata_qid": "Q123"}}
 
         Returns:
             A dict mapping provider name to EnrichmentRunResult.
@@ -502,7 +512,12 @@ class EnrichmentRunner:
                 for provider in runnable:
                     try:
                         run_result = _run_single_provider(
-                            provider, person, triggered_by, label_cache, platform_cache
+                            provider,
+                            person,
+                            triggered_by,
+                            label_cache,
+                            platform_cache,
+                            (provider_kwargs or {}).get(provider.name),
                         )
                         results[provider.name] = run_result
                     except Exception:  # noqa: BLE001
@@ -524,6 +539,7 @@ class EnrichmentRunner:
                             triggered_by,
                             label_cache,
                             platform_cache,
+                            (provider_kwargs or {}).get(provider.name),
                         ): provider
                         for provider in runnable
                     }

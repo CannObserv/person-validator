@@ -693,3 +693,83 @@ class TestRunnerRequiredPlatforms:
 
         run = EnrichmentRun.objects.get(person=person, provider="needs_my_platform")
         assert run.status == "completed"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRunnerProviderKwargs:
+    """provider_kwargs are forwarded to provider.enrich() calls."""
+
+    def test_provider_kwargs_forwarded_to_enrich(self):
+        """Kwargs in provider_kwargs[name] are passed through to enrich()."""
+        from src.web.persons.models import Person
+
+        received_kwargs: dict = {}
+
+        class KwargsCapture(Provider):
+            name = "kwargs_capture"
+            output_keys: list[str] = []
+
+            def enrich(self, person: PersonData, **kwargs) -> list[EnrichmentResult]:  # noqa: ANN003
+                received_kwargs.update(kwargs)
+                return []
+
+        person = Person.objects.create(name="Test Person")
+        reg = ProviderRegistry()
+        reg.register(KwargsCapture())
+        EnrichmentRunner(reg).run(
+            _make_person(id=person.pk),
+            provider_kwargs={"kwargs_capture": {"confirmed_wikidata_qid": "Q99"}},
+        )
+
+        assert received_kwargs == {"confirmed_wikidata_qid": "Q99"}
+
+    def test_provider_kwargs_none_does_not_error(self):
+        """Passing provider_kwargs=None is equivalent to no extra kwargs."""
+        from src.web.persons.models import Person
+
+        class SimpleProvider(Provider):
+            name = "simple"
+            output_keys: list[str] = []
+
+            def enrich(self, person: PersonData) -> list[EnrichmentResult]:
+                return []
+
+        person = Person.objects.create(name="Test Person")
+        reg = ProviderRegistry()
+        reg.register(SimpleProvider())
+        # Should not raise
+        EnrichmentRunner(reg).run(_make_person(id=person.pk), provider_kwargs=None)
+
+    def test_kwargs_not_forwarded_to_other_providers(self):
+        """provider_kwargs for one provider are not leaked to a different provider."""
+        from src.web.persons.models import Person
+
+        received: dict = {}
+
+        class ProviderA(Provider):
+            name = "provider_a"
+            output_keys: list[str] = []
+
+            def enrich(self, person: PersonData, **kwargs) -> list[EnrichmentResult]:  # noqa: ANN003
+                received["a"] = kwargs
+                return []
+
+        class ProviderB(Provider):
+            name = "provider_b"
+            output_keys: list[str] = []
+
+            def enrich(self, person: PersonData, **kwargs) -> list[EnrichmentResult]:  # noqa: ANN003
+                received["b"] = kwargs
+                return []
+
+        person = Person.objects.create(name="Test Person")
+        reg = ProviderRegistry()
+        reg.register(ProviderA())
+        reg.register(ProviderB())
+        EnrichmentRunner(reg).run(
+            _make_person(id=person.pk),
+            provider_kwargs={"provider_a": {"my_flag": True}},
+        )
+
+        assert received["a"] == {"my_flag": True}
+        assert received["b"] == {}

@@ -84,8 +84,15 @@ def run_enrichment_for_person(
         )
     runner = EnrichmentRunner(registry)
 
+    # Build per-provider kwargs.  confirmed_wikidata_qid is forwarded to
+    # WikidataProvider so it uses the confirmed-QID extraction path rather
+    # than the skip-if-already-linked path.
+    p_kwargs: dict[str, dict] | None = None
+    if confirmed_wikidata_qid:
+        p_kwargs = {"wikidata": {"confirmed_wikidata_qid": confirmed_wikidata_qid}}
+
     try:
-        runner.run(person_data, triggered_by=triggered_by)
+        runner.run(person_data, triggered_by=triggered_by, provider_kwargs=p_kwargs)
     except Exception:
         logger.exception(
             "run_enrichment_for_person failed",
