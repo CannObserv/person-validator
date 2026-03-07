@@ -30,7 +30,8 @@ echo "=== Tests ==="
 # skip if the working tree is clean AND we already stamped this exact commit.
 CURRENT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 STAMP_FILE="/tmp/pv-tests-clean-${CURRENT_SHA}"
-WORKING_TREE_DIRTY=$(git status --porcelain 2>/dev/null)
+# Only track staged/unstaged changes to tracked files; ignore untracked files.
+WORKING_TREE_DIRTY=$(git status --porcelain 2>/dev/null | grep -v '^??' || true)
 
 if [[ -f "$STAMP_FILE" && -z "$WORKING_TREE_DIRTY" ]]; then
   echo "Test suite already passed for commit ${CURRENT_SHA:0:7} with a clean working tree — skipping."
