@@ -578,6 +578,33 @@ class TestChangeViewContext:
         assert ctx["auto_link_confidence"] == WikidataProvider.AUTO_LINK_CONFIDENCE
         assert ctx["confirmed_confidence"] == WikidataProvider.CONFIRMED_CONFIDENCE
 
+    def test_custom_action_post_bypasses_modelform_validation(self, superuser, rf):
+        """change_view routes _action POSTs directly to response_change.
+
+        Without this short-circuit, Django runs ModelForm validation on the POST
+        data.  Our adjudication form does not include model fields so validation
+        always fails and response_change is never reached — the response title
+        is prefixed with 'Error:' and the action is silently lost.
+        """
+        person = Person.objects.create(name="George Washington")
+        review = _make_review(person, status="pending")
+
+        request = rf.post(
+            f"/admin/persons/wikidatacandidatereview/{review.pk}/change/",
+            {"_action": "accept", "linked_qid": "Q23"},
+        )
+        request.user = superuser
+        request._messages = CookieStorage(request)
+
+        adm = _make_admin()
+        with patch("src.web.persons.review_handlers.run_enrichment_for_person"):
+            response = adm.change_view(request, str(review.pk))
+
+        # Should redirect (302) to changelist — not re-render with form errors.
+        assert response.status_code == 302
+        review.refresh_from_db()
+        assert review.status == "accepted"
+
 
 # ---------------------------------------------------------------------------
 # rollback_wikidata_autolink task

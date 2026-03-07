@@ -263,10 +263,24 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
     # ------------------------------------------------------------------
 
     def change_view(self, request, object_id, form_url="", extra_context=None):  # noqa: ANN001
-        """Inject WikidataProvider confidence constants for the template."""
+        """Inject WikidataProvider confidence constants; short-circuit custom action POSTs.
+
+        Django's standard change_view runs ModelForm validation before calling
+        response_change.  Our adjudication form does not submit model fields, so
+        validation always fails and response_change is never reached.  We detect
+        the custom ``_action`` POST parameter here and route directly to
+        response_change, bypassing the ModelForm pipeline entirely.
+        """
         extra_context = extra_context or {}
         extra_context["auto_link_confidence"] = WikidataProvider.AUTO_LINK_CONFIDENCE
         extra_context["confirmed_confidence"] = WikidataProvider.CONFIRMED_CONFIDENCE
+
+        if request.method == "POST" and request.POST.get("_action"):
+            obj = self.get_object(request, object_id)
+            if obj is None:
+                return self._get_obj_does_not_exist_redirect(request, self.model._meta, object_id)
+            return self.response_change(request, obj)
+
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     # ------------------------------------------------------------------
