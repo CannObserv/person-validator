@@ -26,7 +26,24 @@ uv run ruff check .
 
 echo ""
 echo "=== Tests ==="
-uv run pytest --no-cov -x
+# Determine if we need to run the test suite:
+# skip if the working tree is clean AND we already stamped this exact commit.
+CURRENT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+STAMP_FILE="/tmp/pv-tests-clean-${CURRENT_SHA}"
+WORKING_TREE_DIRTY=$(git status --porcelain 2>/dev/null)
+
+if [[ -f "$STAMP_FILE" && -z "$WORKING_TREE_DIRTY" ]]; then
+  echo "Test suite already passed for commit ${CURRENT_SHA:0:7} with a clean working tree — skipping."
+else
+  # Always exclude integration tests: they hit live external services and are
+  # unsuitable for routine pre-ship validation (slow, flaky, network-dependent).
+  # Run integration tests explicitly with: uv run pytest -m integration
+  uv run pytest --no-cov -x -m "not integration"
+  # Stamp success only when working tree is clean (dirty trees can't be cached).
+  if [[ -z "$WORKING_TREE_DIRTY" ]]; then
+    touch "$STAMP_FILE"
+  fi
+fi
 
 echo ""
 echo "Pre-ship checks passed."

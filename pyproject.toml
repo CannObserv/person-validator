@@ -29,11 +29,13 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+# -m "not integration" excludes live-network tests by default.
+# Run integration tests explicitly: uv run pytest -m integration
+addopts = "-v --tb=short -m 'not integration'"
 DJANGO_SETTINGS_MODULE = "src.web.config.settings"
 django_find_project = false
 markers = [
-    "integration: marks tests that hit live external services (deselect with -m 'not integration')",
+    "integration: marks tests that hit live external services; excluded by default (run with -m integration)",
 ]
 
 [tool.ruff]

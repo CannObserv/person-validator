@@ -35,6 +35,14 @@ Also:
 - Identify all files touched and their roles in the architecture
 - Check the live app if template/UI or API changes are involved (browser screenshot)
 
+**Do not run the test suite during a review.** The code review phase is
+read-only analysis. Tests run at ship time via `pre-ship.sh`, which skips
+redundantly if the suite already passed for the current commit. If you need
+to verify a specific failing behaviour, run only the relevant test file:
+```bash
+uv run pytest tests/path/to/test_file.py --no-cov -m "not integration"
+```
+
 ### Phase 2 — Analyze
 
 Evaluate against these dimensions:

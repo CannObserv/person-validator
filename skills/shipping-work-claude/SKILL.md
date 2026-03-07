@@ -31,6 +31,18 @@ bash skills/shipping-work-claude/scripts/pre-ship.sh
 
 Do not proceed if lint or tests fail.
 
+**Integration tests are always excluded** from `pre-ship.sh`. They hit live
+external services (Wikidata, Wikipedia) and are unsuitable for routine
+validation — slow, flaky, and network-dependent. Run them explicitly with:
+```bash
+uv run pytest -m integration
+```
+
+**Smart skip:** If the working tree is clean and the test suite already passed
+for the current commit (stamped at `/tmp/pv-tests-clean-<sha>`), the test run
+is skipped. This prevents redundant runs when shipping immediately after a
+full test pass during development.
+
 ### Step 2 — Ensure a clean working tree
 
 ```bash
