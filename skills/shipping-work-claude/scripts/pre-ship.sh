@@ -30,8 +30,13 @@ echo "=== Tests ==="
 # skip if the working tree is clean AND we already stamped this exact commit.
 CURRENT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 STAMP_FILE="/tmp/pv-tests-clean-${CURRENT_SHA}"
-# Only track staged/unstaged changes to tracked files; ignore untracked files.
-WORKING_TREE_DIRTY=$(git status --porcelain 2>/dev/null | grep -v '^??' || true)
+# Ignore untracked files and submodules that only have untracked content changes.
+# The latter (" M vendor/...") appear as ' M' with a submodule note and are not
+# meaningful for cache invalidation — only committed code matters.
+WORKING_TREE_DIRTY=$(git status --porcelain 2>/dev/null \
+  | grep -v '^??' \
+  | grep -v '^[ M]M.*vendor/' \
+  || true)
 
 if [[ -f "$STAMP_FILE" && -z "$WORKING_TREE_DIRTY" ]]; then
   echo "Test suite already passed for commit ${CURRENT_SHA:0:7} with a clean working tree — skipping."
