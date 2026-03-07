@@ -52,8 +52,8 @@ person-validator/
 │   │       ├── base.py       # Provider ABC (dependencies, output_keys, can_run, refresh_interval, required_platforms), Dependency, CircularDependencyError, NoMatchSignal, PersonData, EnrichmentResult, EnrichmentRunResult
 │   │       ├── name_utils.py # infer_name_type — name type heuristic for provider-created names
 │   │       ├── registry.py   # ProviderRegistry — register/enable/disable providers
-│   │       ├── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist; handles NoMatchSignal
-│   │       ├── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin
+│   │       ├── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist; handles NoMatchSignal; accepts provider_kwargs: dict[str,dict] forwarded to each provider.enrich()
+│   │       ├── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin; builds provider_kwargs for confirmed_wikidata_qid and force_rescore
 │   │       └── providers/    # Concrete enrichment provider implementations
 │   │           ├── wikimedia_client.py  # WikimediaHttpClient — shared session, retry, Action API + SPARQL
 │   │           └── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract

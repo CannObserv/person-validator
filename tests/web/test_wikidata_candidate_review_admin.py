@@ -605,6 +605,45 @@ class TestChangeViewContext:
         review.refresh_from_db()
         assert review.status == "accepted"
 
+    def test_custom_action_post_nonexistent_object_redirects(self, superuser, rf):
+        """change_view returns 404-redirect when the object_id does not exist."""
+        request = rf.post(
+            "/admin/persons/wikidatacandidatereview/nonexistent/change/",
+            {"_action": "accept", "linked_qid": "Q23"},
+        )
+        request.user = superuser
+        request._messages = CookieStorage(request)
+
+        adm = _make_admin()
+        response = adm.change_view(request, "nonexistent-id")
+
+        # Django's _get_obj_does_not_exist_redirect returns a 302 to the changelist.
+        assert response.status_code == 302
+
+    def test_custom_action_post_writes_admin_log_entry(self, superuser, rf):
+        """change_view short-circuit writes a LogEntry for the admin history tab."""
+        from django.contrib.admin.models import LogEntry
+
+        person = Person.objects.create(name="George Washington")
+        review = _make_review(person, status="pending")
+
+        request = rf.post(
+            f"/admin/persons/wikidatacandidatereview/{review.pk}/change/",
+            {"_action": "accept", "linked_qid": "Q23"},
+        )
+        request.user = superuser
+        request._messages = CookieStorage(request)
+
+        adm = _make_admin()
+        before_count = LogEntry.objects.filter(user=superuser).count()
+        with patch("src.web.persons.review_handlers.run_enrichment_for_person"):
+            adm.change_view(request, str(review.pk))
+
+        after_count = LogEntry.objects.filter(user=superuser).count()
+        assert after_count == before_count + 1
+        entry = LogEntry.objects.filter(user=superuser).order_by("-action_time").first()
+        assert "accept" in entry.change_message
+
 
 # ---------------------------------------------------------------------------
 # rollback_wikidata_autolink task

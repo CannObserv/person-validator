@@ -166,6 +166,13 @@ class Provider(ABC):
         return True
 
     @abstractmethod
-    def enrich(self, person: PersonData) -> list[EnrichmentResult]:
-        """Return a list of enrichment results for the given person."""
+    def enrich(self, person: PersonData, **kwargs: object) -> list[EnrichmentResult]:
+        """Return a list of enrichment results for the given person.
+
+        Subclasses may declare specific keyword arguments (e.g.
+        ``confirmed_wikidata_qid``) for provider-specific behaviour.
+        The ``**kwargs`` signature here ensures that any extra kwargs
+        forwarded by the runner do not cause a ``TypeError`` in providers
+        that do not use them.
+        """
         ...

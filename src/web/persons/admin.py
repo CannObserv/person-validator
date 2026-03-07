@@ -279,7 +279,11 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
             obj = self.get_object(request, object_id)
             if obj is None:
                 return self._get_obj_does_not_exist_redirect(request, self.model._meta, object_id)
-            return self.response_change(request, obj)
+            response = self.response_change(request, obj)
+            # response_change has already mutated obj; log after so the message
+            # reflects the new state.  This preserves the admin history tab.
+            self.log_change(request, obj, f"Adjudication action: {request.POST['_action']}")
+            return response
 
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 

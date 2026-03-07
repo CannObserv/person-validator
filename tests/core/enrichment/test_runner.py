@@ -718,10 +718,10 @@ class TestRunnerProviderKwargs:
         reg.register(KwargsCapture())
         EnrichmentRunner(reg).run(
             _make_person(id=person.pk),
-            provider_kwargs={"kwargs_capture": {"confirmed_wikidata_qid": "Q99"}},
+            provider_kwargs={"kwargs_capture": {"my_param": "value"}},
         )
 
-        assert received_kwargs == {"confirmed_wikidata_qid": "Q99"}
+        assert received_kwargs == {"my_param": "value"}
 
     def test_provider_kwargs_none_does_not_error(self):
         """Passing provider_kwargs=None is equivalent to no extra kwargs."""

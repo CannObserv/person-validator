@@ -266,7 +266,7 @@ def _run_single_provider_in_thread(
     triggered_by: str,
     label_cache: dict[str, set[str]],
     platform_cache: set[str],
-    enrich_kwargs: dict | None = None,
+    enrich_kwargs: dict[str, object] | None = None,
 ) -> EnrichmentRunResult:
     """Thread-safe wrapper: ensures DB connections are fresh per thread."""
     close_old_connections()
@@ -284,7 +284,7 @@ def _run_single_provider(
     triggered_by: str,
     label_cache: dict[str, set[str]],
     platform_cache: set[str],
-    enrich_kwargs: dict | None = None,
+    enrich_kwargs: dict[str, object] | None = None,
 ) -> EnrichmentRunResult:
     """Run one provider against a person and persist results.
 
