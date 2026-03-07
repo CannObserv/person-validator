@@ -114,8 +114,8 @@ class TestWikidataCandidateReviewAdminConfig:
         """list_display includes required columns."""
         admin = _make_admin()
         for field in (
-            "person_link",
             "query_name",
+            "person_link",
             "review_type",
             "candidate_count",
             "status",
@@ -124,6 +124,12 @@ class TestWikidataCandidateReviewAdminConfig:
             "created_at",
         ):
             assert field in admin.list_display
+
+    def test_list_display_links(self):
+        """query_name is the row link; person_link is a separate non-linked column."""
+        admin = _make_admin()
+        assert "query_name" in admin.list_display_links
+        assert "person_link" not in admin.list_display_links
 
     def test_list_filter(self):
         """list_filter includes status."""

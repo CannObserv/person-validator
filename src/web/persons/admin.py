@@ -197,8 +197,8 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
     """Admin interface for WikidataCandidateReview with custom adjudication UI."""
 
     list_display = (
-        "person_link",
         "query_name",
+        "person_link",
         "review_type",
         "candidate_count",
         "status",
@@ -206,6 +206,7 @@ class WikidataCandidateReviewAdmin(admin.ModelAdmin):
         "reviewed_by",
         "created_at",
     )
+    list_display_links = ("query_name",)
     list_filter = ("status",)
     search_fields = ("person__name", "query_name", "linked_qid")
     readonly_fields = (
