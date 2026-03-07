@@ -46,7 +46,7 @@ class TestRunEnrichmentForPersonConfirmedQid:
         )
 
     def test_no_confirmed_qid_does_not_inject_kwarg(self):
-        """Without confirmed_wikidata_qid, the provider receives no extra kwargs."""
+        """Without confirmed_wikidata_qid or force_rescore, no extra kwargs reach the provider."""
         from src.web.persons.models import Person  # noqa: PLC0415
 
         person = Person.objects.create(name="Test Person")
@@ -67,33 +67,7 @@ class TestRunEnrichmentForPersonConfirmedQid:
                 triggered_by="test",
             )
 
-        assert captured == {}, "Expected no extra kwargs when confirmed_wikidata_qid is None"
-
-    def test_force_re_extract_forwarded_to_provider(self):
-        """force_re_extract=True is forwarded to WikidataProvider.enrich()."""
-        from src.web.persons.models import Person  # noqa: PLC0415
-
-        person = Person.objects.create(name="Test Person")
-
-        captured: dict = {}
-
-        def capturing_enrich(self_provider, person_data, **kwargs):  # noqa: ANN001
-            captured.update(kwargs)
-            return []
-
-        with patch(
-            "src.core.enrichment.providers.wikidata.WikidataProvider.enrich",
-            capturing_enrich,
-        ):
-            run_enrichment_for_person(
-                person_id=str(person.pk),
-                triggered_by="test",
-                force_re_extract=True,
-            )
-
-        assert captured.get("force_re_extract") is True, (
-            "force_re_extract was not forwarded to WikidataProvider.enrich()"
-        )
+        assert captured == {}, "Expected no extra kwargs on a plain run_enrichment_for_person call"
 
     def test_force_rescore_forwarded_to_provider(self):
         """force_rescore=True is forwarded to WikidataProvider.enrich() as a kwarg.

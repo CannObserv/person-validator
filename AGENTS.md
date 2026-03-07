@@ -53,10 +53,10 @@ person-validator/
 │   │       ├── name_utils.py # infer_name_type — name type heuristic for provider-created names
 │   │       ├── registry.py   # ProviderRegistry — register/enable/disable providers
 │   │       ├── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist; handles NoMatchSignal; accepts provider_kwargs: dict[str,dict] forwarded to each provider.enrich()
-│   │       ├── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin; builds provider_kwargs for confirmed_wikidata_qid, force_rescore, and force_re_extract
+│   │       ├── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin; builds provider_kwargs for confirmed_wikidata_qid and force_rescore
 │   │       └── providers/    # Concrete enrichment provider implementations
 │   │           ├── wikimedia_client.py  # WikimediaHttpClient — shared session, retry, Action API + SPARQL + Wikipedia REST API
-│   │           ├── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract; three enrich() modes: (1) confirmed_wikidata_qid — skip search, extract at CONFIRMED_CONFIDENCE; (2) force_re_extract — re-fetch known QID, re-run _extract(), no review created; (3) default — search/score/auto-link or pending review. force_re_extract and force_rescore are mutually exclusive.
+│   │           ├── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract; three enrich() modes: (1) confirmed_wikidata_qid — skip search, extract at CONFIRMED_CONFIDENCE; (2) existing wikidata_qid present — re-fetch entity, re-run _extract() with stored confidence, no review created (default refresh path); (3) force_rescore or no existing QID — fresh search/score/auto-link or pending review.
 │   │           ├── wikipedia.py         # WikipediaProvider — enwiki sitelink → article URL + plain-text extract
 │   │           └── ballotpedia.py       # BallotpediaProvider — US political figures via Ballotpedia MediaWiki API (categories-based: emits ballotpedia_url + party; NoMatchSignal only on missing page/slug)
 │   └── web/                  # Django application

@@ -505,25 +505,8 @@ class TestWikidataProviderEnrich:
         # search_entities must have been called (not skipped due to existing qid)
         client.search_entities.assert_called_once()
 
-    def test_existing_wikidata_qid_skips_search(self, db):
-        """If wikidata_qid already in existing_attributes, search is skipped."""
-        from src.web.persons.models import Person
-
-        client = _make_fake_client()
-        person_obj = Person.objects.create(name="George Washington")
-        person = _make_person(
-            person_id=str(person_obj.pk),
-            existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
-        )
-        provider = self._make_provider(client)
-
-        result = provider.enrich(person)
-
-        assert result == []
-        client.search_entities.assert_not_called()
-
-    def test_force_re_extract_fetches_known_qid(self, db):
-        """force_re_extract=True fetches and extracts the existing QID without search."""
+    def test_existing_wikidata_qid_re_extracts(self, db):
+        """If wikidata_qid already in existing_attributes, re-fetch and extract it."""
         from src.web.persons.models import Person
 
         entity = _make_entity()
@@ -535,31 +518,16 @@ class TestWikidataProviderEnrich:
         )
         provider = self._make_provider(client)
 
-        result = provider.enrich(person, force_re_extract=True)
+        result = provider.enrich(person)
 
         client.search_entities.assert_not_called()
+        client.get_entities.assert_called()
         keys = {r.key for r in result}
         assert "wikidata_qid" in keys
         assert "wikidata_url" in keys
 
-    def test_force_re_extract_without_existing_qid_returns_empty(self, db):
-        """force_re_extract=True with no existing wikidata_qid returns empty."""
-        # Nothing to re-extract when the person has no wikidata_qid yet.
-        from src.web.persons.models import Person
-
-        client = _make_fake_client()
-        person_obj = Person.objects.create(name="George Washington")
-        person = _make_person(person_id=str(person_obj.pk))
-        provider = self._make_provider(client)
-
-        result = provider.enrich(person, force_re_extract=True)
-
-        assert result == []
-        client.search_entities.assert_not_called()
-        client.get_entities.assert_not_called()
-
-    def test_force_re_extract_does_not_create_candidate_review(self, db):
-        """force_re_extract=True never creates a WikidataCandidateReview."""
+    def test_existing_wikidata_qid_does_not_create_candidate_review(self, db):
+        """Re-extracting a known QID never creates a WikidataCandidateReview."""
         from src.web.persons.models import Person, WikidataCandidateReview
 
         entity = _make_entity()
@@ -571,12 +539,12 @@ class TestWikidataProviderEnrich:
         )
         provider = self._make_provider(client)
 
-        provider.enrich(person, force_re_extract=True)
+        provider.enrich(person)
 
         assert WikidataCandidateReview.objects.filter(person=person_obj).count() == 0
 
-    def test_force_re_extract_creates_new_aliases(self, db):
-        """force_re_extract=True creates PersonName aliases found on the entity."""
+    def test_existing_wikidata_qid_creates_aliases(self, db):
+        """Re-extraction creates PersonName aliases found on the entity."""
         from src.web.persons.models import Person, PersonName
 
         entity = _make_entity(aliases=["G. Washington", "First POTUS"])
@@ -588,7 +556,7 @@ class TestWikidataProviderEnrich:
         )
         provider = self._make_provider(client)
 
-        provider.enrich(person, force_re_extract=True)
+        provider.enrich(person)
 
         alias_names = set(
             PersonName.objects.filter(person=person_obj, source="wikidata").values_list(
@@ -598,8 +566,8 @@ class TestWikidataProviderEnrich:
         assert "G. Washington" in alias_names
         assert "First POTUS" in alias_names
 
-    def test_force_re_extract_uses_existing_confidence(self, db):
-        """force_re_extract reads confidence from the existing wikidata_qid attribute."""
+    def test_existing_wikidata_qid_uses_stored_confidence(self, db):
+        """Re-extraction reads confidence from the existing wikidata_qid attribute."""
         from src.web.persons.models import Person
 
         entity = _make_entity()
@@ -618,44 +586,31 @@ class TestWikidataProviderEnrich:
         )
         provider = self._make_provider(client)
 
-        results = provider.enrich(person, force_re_extract=True)
+        results = provider.enrich(person)
 
         qid_result = next(r for r in results if r.key == "wikidata_qid")
         assert qid_result.confidence == WikidataProvider.CONFIRMED_CONFIDENCE
 
-    def test_force_re_extract_defaults_to_auto_link_confidence_when_missing(self, db):
-        """force_re_extract falls back to AUTO_LINK_CONFIDENCE when no confidence stored."""
+    def test_existing_wikidata_qid_defaults_confidence_when_missing(self, db):
+        """Re-extraction falls back to AUTO_LINK_CONFIDENCE when no confidence stored."""
         from src.web.persons.models import Person
 
         entity = _make_entity()
         client = _make_fake_client(entity_map={"Q23": entity})
         person_obj = Person.objects.create(name="George Washington")
-        # existing_attributes dict has no 'confidence' key
         person = _make_person(
             person_id=str(person_obj.pk),
             existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
         )
         provider = self._make_provider(client)
 
-        results = provider.enrich(person, force_re_extract=True)
+        results = provider.enrich(person)
 
         qid_result = next(r for r in results if r.key == "wikidata_qid")
         assert qid_result.confidence == WikidataProvider.AUTO_LINK_CONFIDENCE
 
-    def test_force_re_extract_and_force_rescore_raises(self, db):
-        """Passing both force_re_extract and force_rescore raises ValueError."""
-        from src.web.persons.models import Person
-
-        client = _make_fake_client()
-        person_obj = Person.objects.create(name="George Washington")
-        person = _make_person(person_id=str(person_obj.pk))
-        provider = self._make_provider(client)
-
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            provider.enrich(person, force_re_extract=True, force_rescore=True)
-
-    def test_force_re_extract_qid_not_found_returns_empty(self, db):
-        """force_re_extract returns empty when the known QID is not found in Wikidata."""
+    def test_existing_wikidata_qid_not_found_returns_empty(self, db):
+        """Returns empty when the known QID is not found in Wikidata."""
         from src.web.persons.models import Person
 
         client = _make_fake_client(entity_map={})  # QID not found
@@ -666,7 +621,7 @@ class TestWikidataProviderEnrich:
         )
         provider = self._make_provider(client)
 
-        result = provider.enrich(person, force_re_extract=True)
+        result = provider.enrich(person)
 
         assert result == []
 
