@@ -134,6 +134,8 @@ class WikimediaHttpClient:
 
         Returns:
             The parsed JSON summary dict from the Wikimedia REST API.
+            Article titles may contain UTF-8 characters (e.g. accented letters);
+            pass them as-is — ``requests`` handles percent-encoding automatically.
 
         Raises:
             requests.HTTPError: For any HTTP error response (including 404).

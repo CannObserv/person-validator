@@ -55,8 +55,9 @@ person-validator/
 │   │       ├── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist; handles NoMatchSignal; accepts provider_kwargs: dict[str,dict] forwarded to each provider.enrich()
 │   │       ├── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin; builds provider_kwargs for confirmed_wikidata_qid and force_rescore
 │   │       └── providers/    # Concrete enrichment provider implementations
-│   │           ├── wikimedia_client.py  # WikimediaHttpClient — shared session, retry, Action API + SPARQL
-│   │           └── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract
+│   │           ├── wikimedia_client.py  # WikimediaHttpClient — shared session, retry, Action API + SPARQL + Wikipedia REST API
+│   │           ├── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract
+│   │           └── wikipedia.py         # WikipediaProvider — enwiki sitelink → article URL + plain-text extract
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend

@@ -61,8 +61,8 @@ class WikipediaProvider(Provider):
 
         Raises:
             NoMatchSignal: When no ``wikidata_qid`` attribute is found, the
-                entity has no English Wikipedia article, or the article returns
-                HTTP 404.
+                entity has no English Wikipedia article, the article returns
+                HTTP 404, or the summary response contains no extract text.
         """
         # 1. Read wikidata_qid from existing attributes.
         qid = next(
@@ -106,6 +106,12 @@ class WikipediaProvider(Provider):
         # 4. Build results.
         article_url = f"https://en.wikipedia.org/wiki/{url_title}"
         extract = summary.get("extract", "")
+        if not extract:
+            logger.warning(
+                "wikipedia_provider.empty_extract",
+                extra={"qid": qid, "title": url_title, "person_id": person.id},
+            )
+            raise NoMatchSignal(f"Wikipedia article '{url_title}' returned empty extract")
 
         return [
             EnrichmentResult(

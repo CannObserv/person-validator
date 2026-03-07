@@ -227,6 +227,24 @@ def test_no_match_when_qid_attribute_missing():
         provider.enrich(_person_no_qid())
 
 
+def test_no_match_when_extract_is_empty():
+    """Summary response with empty extract → NoMatchSignal (not a silent empty-string attribute)."""
+    summary = _make_summary_response()
+    summary["extract"] = ""
+    provider = _make_provider(entity=_make_entity(), summary=summary)
+    with pytest.raises(NoMatchSignal):
+        provider.enrich(_person())
+
+
+def test_no_match_when_extract_key_absent():
+    """Summary response with no extract key → NoMatchSignal."""
+    summary = _make_summary_response()
+    del summary["extract"]
+    provider = _make_provider(entity=_make_entity(), summary=summary)
+    with pytest.raises(NoMatchSignal):
+        provider.enrich(_person())
+
+
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
@@ -286,8 +304,7 @@ def test_integration_george_washington():
     assert "wikipedia_extract" in keys
 
     url_result = next(r for r in results if r.key == "wikipedia_url")
-    assert "George_Washington" in url_result.value or "George Washington" in url_result.value
-    assert url_result.value.startswith("https://en.wikipedia.org/wiki/")
+    assert url_result.value == "https://en.wikipedia.org/wiki/George_Washington"
 
     extract_result = next(r for r in results if r.key == "wikipedia_extract")
     assert len(extract_result.value) > 50
