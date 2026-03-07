@@ -53,10 +53,10 @@ person-validator/
 │   │       ├── name_utils.py # infer_name_type — name type heuristic for provider-created names
 │   │       ├── registry.py   # ProviderRegistry — register/enable/disable providers
 │   │       ├── runner.py     # EnrichmentRunner — dependency graph, topological sort, parallel execution, validate, persist; handles NoMatchSignal; accepts provider_kwargs: dict[str,dict] forwarded to each provider.enrich()
-│   │       ├── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin; builds provider_kwargs for confirmed_wikidata_qid and force_rescore
+│   │       ├── tasks.py      # run_enrichment_for_person, bump_wikidata_confidence — synchronous task utilities called by signals and admin; builds provider_kwargs for confirmed_wikidata_qid, force_rescore, and force_re_extract
 │   │       └── providers/    # Concrete enrichment provider implementations
 │   │           ├── wikimedia_client.py  # WikimediaHttpClient — shared session, retry, Action API + SPARQL + Wikipedia REST API
-│   │           ├── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract
+│   │           ├── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract; three enrich() modes: (1) confirmed_wikidata_qid — skip search, extract at CONFIRMED_CONFIDENCE; (2) force_re_extract — re-fetch known QID, re-run _extract(), no review created; (3) default — search/score/auto-link or pending review. force_re_extract and force_rescore are mutually exclusive.
 │   │           ├── wikipedia.py         # WikipediaProvider — enwiki sitelink → article URL + plain-text extract
 │   │           └── ballotpedia.py       # BallotpediaProvider — US political figures via Ballotpedia MediaWiki API (categories-based: emits ballotpedia_url + party; NoMatchSignal only on missing page/slug)
 │   └── web/                  # Django application
@@ -120,7 +120,7 @@ OR-expanded clause for (given, surname) pair matches.
 | `persons_attributelabel` | persons | Controlled label vocabulary per `value_type` (e.g. "work", "home") |
 | `persons_externalplatform` | persons | Controlled platform/identity vocabulary for `platform_url` attributes |
 | `persons_externalidentifierproperty` | persons | Wikidata external identifier property taxonomy; used by WikidataProvider to extract and construct URLs; managed by `sync_wikidata_properties` command. **Note:** P2390 (Ballotpedia) is seeded by migration 0015 — not imported by sync (structural SPARQL filter gap). |
-| `persons_enrichmentrun` | persons | Audit log of provider runs (one row per person+provider invocation) |
+| `persons_enrichmentrun` | persons | Audit log of provider runs (one row per person+provider invocation); counters: `attributes_saved` (new rows), `attributes_refreshed` (updated rows), `attributes_skipped` (no-ops + failures); `attributes_created` is retired (always 0) |
 | `persons_wikidatacandidatereview` | persons | Ambiguous/low-confidence Wikidata search results queued for admin review; post-save signal triggers enrichment on acceptance |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
 

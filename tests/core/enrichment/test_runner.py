@@ -28,6 +28,7 @@ def _aggregate(results: dict, person_id: str = "") -> EnrichmentRunResult:
     agg = EnrichmentRunResult(person_id=pid)
     for r in results.values():
         agg.attributes_saved += r.attributes_saved
+        agg.attributes_refreshed += r.attributes_refreshed
         agg.attributes_skipped += r.attributes_skipped
         agg.warnings.extend(r.warnings)
     return agg
@@ -187,7 +188,7 @@ class TestRunnerBasic:
         assert run_result.attributes_saved == 1
         assert run_result.attributes_refreshed == 0
         assert run_result.attributes_skipped == 0
-        assert run_result.attributes_created == 0  # retired field — always zero
+        # attributes_created field is retired from EnrichmentRunResult (removed from dataclass)
 
     def test_rerun_with_unchanged_value_counts_as_skipped(self):
         """On re-run with identical value, unchanged rows are skipped (no DB write)."""
@@ -278,6 +279,30 @@ class TestRunnerBasic:
         attr_after_second = PersonAttribute.objects.get(person=person, key="bio")
         # updated_at must not advance — no DB write happened on the unchanged attribute
         assert attr_after_second.updated_at == updated_at_after_first
+
+
+@pytest.mark.django_db
+class TestRunnerLoadExistingAttributes:
+    """_load_existing_attributes includes confidence so re-extract reads it correctly."""
+
+    def test_load_existing_attributes_includes_confidence(self):
+        """Confidence is present in each attribute dict loaded from the DB."""
+        from src.core.enrichment.runner import _load_existing_attributes
+        from src.web.persons.models import Person, PersonAttribute
+
+        person = Person.objects.create(name="Test Person")
+        PersonAttribute.objects.create(
+            person=person,
+            key="wikidata_qid",
+            value="Q42",
+            value_type="text",
+            source="wikidata",
+            confidence=0.95,
+        )
+        attrs = _load_existing_attributes(str(person.pk))
+        assert len(attrs) == 1
+        assert "confidence" in attrs[0]
+        assert attrs[0]["confidence"] == 0.95
 
 
 @pytest.mark.django_db

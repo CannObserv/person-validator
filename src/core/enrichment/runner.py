@@ -136,13 +136,13 @@ def _load_active_platforms() -> set[str]:
 def _load_existing_attributes(person_id: str) -> list[dict]:
     """Load all current PersonAttribute rows for *person_id* from the DB.
 
-    Returns a list of dicts with keys: key, value, value_type, source.
+    Returns a list of dicts with keys: key, value, value_type, source, confidence.
     """
     from src.web.persons.models import PersonAttribute  # noqa: PLC0415 (circular — see module note)
 
     return list(
         PersonAttribute.objects.filter(person_id=person_id).values(
-            "key", "value", "value_type", "source"
+            "key", "value", "value_type", "source", "confidence"
         )
     )
 
@@ -418,7 +418,7 @@ def _run_single_provider(
         db_run.status = "completed"
         db_run.attributes_saved = provider_saved
         db_run.attributes_skipped = provider_skipped
-        db_run.attributes_created = 0  # retired — kept in DB for backward compat
+        db_run.attributes_created = 0  # retired field — always zero
         db_run.attributes_refreshed = provider_refreshed
         db_run.warnings = [w.__dict__ for w in provider_warnings]
 
@@ -437,7 +437,6 @@ def _run_single_provider(
         person_id=person.id,
         attributes_saved=provider_saved,
         attributes_skipped=provider_skipped,
-        attributes_created=0,  # retired — zero-filled
         attributes_refreshed=provider_refreshed,
         warnings=provider_warnings,
     )

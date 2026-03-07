@@ -642,6 +642,18 @@ class TestWikidataProviderEnrich:
         qid_result = next(r for r in results if r.key == "wikidata_qid")
         assert qid_result.confidence == WikidataProvider.AUTO_LINK_CONFIDENCE
 
+    def test_force_re_extract_and_force_rescore_raises(self, db):
+        """Passing both force_re_extract and force_rescore raises ValueError."""
+        from src.web.persons.models import Person
+
+        client = _make_fake_client()
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(person_id=str(person_obj.pk))
+        provider = self._make_provider(client)
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            provider.enrich(person, force_re_extract=True, force_rescore=True)
+
     def test_force_re_extract_qid_not_found_returns_empty(self, db):
         """force_re_extract returns empty when the known QID is not found in Wikidata."""
         from src.web.persons.models import Person

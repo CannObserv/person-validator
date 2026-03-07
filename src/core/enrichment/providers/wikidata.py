@@ -327,6 +327,13 @@ class WikidataProvider(Provider):
             WikidataCandidateReview,
         )
 
+        if force_re_extract and force_rescore:
+            raise ValueError(
+                "force_re_extract and force_rescore are mutually exclusive: "
+                "force_re_extract re-fetches the known QID; "
+                "force_rescore discards it and re-runs search."
+            )
+
         confidence = self.AUTO_LINK_CONFIDENCE
         alias_confidence = self.ALIAS_CONFIDENCE
 

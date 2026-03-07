@@ -100,7 +100,6 @@ class EnrichmentRunResult:
     person_id: str
     attributes_saved: int = 0
     attributes_skipped: int = 0
-    attributes_created: int = 0
     attributes_refreshed: int = 0
     warnings: list[EnrichmentWarning] = field(default_factory=list)
 
