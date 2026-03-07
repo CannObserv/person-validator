@@ -74,9 +74,11 @@ def run_enrichment_for_person(
     # For now, build a fresh registry on each call; a future issue may
     # introduce a module-level singleton populated at app startup.
     from src.core.enrichment.providers.wikidata import WikidataProvider  # noqa: PLC0415
+    from src.core.enrichment.providers.wikipedia import WikipediaProvider  # noqa: PLC0415
 
     registry = ProviderRegistry()
     registry.register(WikidataProvider())
+    registry.register(WikipediaProvider())
     if not registry.enabled_providers():
         logger.warning(
             "run_enrichment_for_person: no providers registered; enrichment is a no-op",

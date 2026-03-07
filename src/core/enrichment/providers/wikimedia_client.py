@@ -125,6 +125,23 @@ class WikimediaHttpClient:
         # Filter out "missing" stubs (API returns {"id": "Q999", "missing": ""})
         return {qid: ent for qid, ent in entities.items() if "missing" not in ent}
 
+    def get_wikipedia_summary(self, title: str) -> dict:
+        """Fetch an English Wikipedia article summary via the REST API.
+
+        Args:
+            title: Article title as returned by the Wikidata ``enwiki`` sitelink
+                (may contain underscores).
+
+        Returns:
+            The parsed JSON summary dict from the Wikimedia REST API.
+
+        Raises:
+            requests.HTTPError: For any HTTP error response (including 404).
+                Callers should handle 404 as a "no article" signal.
+        """
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+        return self._get(url, {})
+
     def sparql(self, query: str) -> list[dict]:
         """Execute a SPARQL SELECT query against the Wikidata query service.
 
