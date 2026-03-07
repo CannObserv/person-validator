@@ -73,15 +73,20 @@ class TestP2390MigrationSeed:
         prop = ExternalIdentifierProperty.objects.get(wikidata_property_id="P2390")
         assert prop.slug == "ballotpedia-slug"
         assert prop.display == "Ballotpedia page slug"
-        assert prop.formatter_url == "https://ballotpedia.org/$1"
+        assert prop.formatter_url == ""
         assert prop.is_enabled is True
 
-    def test_p2390_linked_to_ballotpedia_platform(self):
+    def test_p2390_platform_is_null(self):
+        """platform FK must be NULL so WikidataProvider emits the raw slug as text.
+
+        When platform is set, WikidataProvider constructs the full URL and emits
+        a platform_url attribute — but BallotpediaProvider reads the raw slug
+        (e.g. 'Denny_Heck') not the constructed URL.
+        """
         from src.web.persons.models import ExternalIdentifierProperty
 
         prop = ExternalIdentifierProperty.objects.get(wikidata_property_id="P2390")
-        assert prop.platform is not None
-        assert prop.platform.slug == "ballotpedia"
+        assert prop.platform is None
 
     def test_p2390_upsert_is_idempotent(self):
         """Running the seed function twice does not raise or duplicate rows."""

@@ -6,6 +6,12 @@ The ``ballotpedia-slug`` attribute (P2390 claim value) is written by WikidataPro
 Note: P2390 is not imported by ``sync_wikidata_properties`` due to a structural SPARQL
 filter limitation. It is seeded by migration 0015_seed_p2390_ballotpedia_property so that
 WikidataProvider will extract and write the ballotpedia-slug attribute automatically.
+
+API endpoint: ``https://ballotpedia.org/wiki/api.php`` (not ``/api.php``).
+Ballotpedia pages use ``<BPW widget='profile/infobox'>`` for newer articles;
+older articles may still carry ``{{Infobox officeholder}}`` wikitext.  Pages
+that have migrated to BPW widgets will yield ``NoMatchSignal`` since no
+standard infobox template is present to parse.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ from src.core.logging import get_logger
 logger = get_logger(__name__)
 
 _BALLOTPEDIA_CONFIDENCE: float = 0.90
-_BASE_URL = "https://ballotpedia.org/api.php"
+_BASE_URL = "https://ballotpedia.org/wiki/api.php"
 _USER_AGENT = "PersonValidator/0.1 (greg@cannabis.observer)"
 
 

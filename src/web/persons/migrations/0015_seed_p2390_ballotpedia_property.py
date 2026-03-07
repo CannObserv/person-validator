@@ -13,11 +13,16 @@ from django.db import migrations
 
 
 def seed_ballotpedia_property(apps, schema_editor):
-    """Upsert the P2390 / Ballotpedia ID ExternalIdentifierProperty row."""
-    ExternalIdentifierProperty = apps.get_model("persons", "ExternalIdentifierProperty")
-    ExternalPlatform = apps.get_model("persons", "ExternalPlatform")
+    """Upsert the P2390 / Ballotpedia ID ExternalIdentifierProperty row.
 
-    platform = ExternalPlatform.objects.filter(slug="ballotpedia").first()
+    Both ``formatter_url`` and ``platform`` are intentionally left blank/NULL.
+    WikidataProvider only takes the raw-identifier-as-text path when
+    ``formatter_url`` is empty.  When ``formatter_url`` is set but ``platform``
+    is NULL it logs a warning and emits nothing.  We want the raw P2390 value
+    (e.g. 'Denny_Heck') stored as ``text`` under key ``ballotpedia-slug`` so
+    BallotpediaProvider can construct the page URL itself.
+    """
+    ExternalIdentifierProperty = apps.get_model("persons", "ExternalIdentifierProperty")
 
     ExternalIdentifierProperty.objects.update_or_create(
         wikidata_property_id="P2390",
@@ -25,12 +30,12 @@ def seed_ballotpedia_property(apps, schema_editor):
             "slug": "ballotpedia-slug",
             "display": "Ballotpedia page slug",
             "description": "Ballotpedia page slug for a person",
-            "formatter_url": "https://ballotpedia.org/$1",
+            "formatter_url": "",
             "subject_item_label": "Ballotpedia",
             "taxonomy_categories": [],
             "is_enabled": True,
             "sort_order": 140,
-            "platform": platform,
+            "platform": None,
         },
     )
 
