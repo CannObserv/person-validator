@@ -297,6 +297,7 @@ class WikidataProvider(Provider):
         *,
         confirmed_wikidata_qid: str | None = None,
         force_rescore: bool = False,
+        force_re_extract: bool = False,
     ) -> list[EnrichmentResult]:
         """Run Wikidata enrichment for *person*.
 
@@ -308,6 +309,12 @@ class WikidataProvider(Provider):
             force_rescore: When ``True``, ignore any existing ``wikidata_qid``
                 attribute and perform a fresh search.  Used after admin rejects
                 an auto-linked review.
+            force_re_extract: When ``True`` and a ``wikidata_qid`` is already
+                present, skip search and re-fetch the known QID from the
+                Wikidata API, then call ``_extract()`` against the fresh entity
+                response.  No ``WikidataCandidateReview`` is created — the
+                person is already identified.  Returns empty list when no
+                existing QID is found.
 
         Returns:
             List of :class:`~src.core.enrichment.base.EnrichmentResult` objects.
@@ -344,6 +351,51 @@ class WikidataProvider(Provider):
                 entity=entity,
                 qid=confirmed_wikidata_qid,
                 confidence=confidence,
+                alias_confidence=alias_confidence,
+                PersonName=PersonName,
+                ExternalIdentifierProperty=ExternalIdentifierProperty,
+            )
+
+        # Re-extract path: refresh attributes from the already-known QID without
+        # re-running search/scoring or creating a WikidataCandidateReview.
+        if force_re_extract:
+            existing_attr = next(
+                (a for a in person.existing_attributes if a.get("key") == "wikidata_qid"),
+                None,
+            )
+            if existing_attr is None:
+                logger.info(
+                    "WikidataProvider: force_re_extract requested but no wikidata_qid present",
+                    extra={"person_id": person.id},
+                )
+                return []
+            existing_qid = existing_attr["value"]
+            existing_confidence = float(
+                existing_attr.get("confidence") or self.AUTO_LINK_CONFIDENCE
+            )
+            logger.info(
+                "WikidataProvider: re-extracting from known QID",
+                extra={"person_id": person.id, "qid": existing_qid},
+            )
+            entities = self._client.get_entities([existing_qid])
+            entity = entities.get(existing_qid)
+            if entity is None:
+                logger.warning(
+                    "WikidataProvider: known QID not found during re-extraction",
+                    extra={"person_id": person.id, "qid": existing_qid},
+                )
+                return []
+            # Alias confidence mirrors the entity confidence level.
+            alias_confidence = (
+                self.CONFIRMED_ALIAS_CONFIDENCE
+                if existing_confidence >= self.CONFIRMED_CONFIDENCE - 1e-9
+                else self.ALIAS_CONFIDENCE
+            )
+            return self._extract(
+                person=person,
+                entity=entity,
+                qid=existing_qid,
+                confidence=existing_confidence,
                 alias_confidence=alias_confidence,
                 PersonName=PersonName,
                 ExternalIdentifierProperty=ExternalIdentifierProperty,

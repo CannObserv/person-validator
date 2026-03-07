@@ -2,6 +2,7 @@
 
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Literal
 
 from django.db import close_old_connections
 from django.utils import timezone
@@ -240,7 +241,7 @@ def _persist_attribute(
     validated: AttributeValue,
     clean_labels: list[str],
     clean_platform: str | None = None,
-) -> bool:
+) -> Literal["created", "refreshed", "unchanged"]:
     """Persist a single validated EnrichmentResult to the database.
 
     Uses a filter-then-create pattern to avoid exact-duplicate rows without
@@ -248,7 +249,11 @@ def _persist_attribute(
     SQLite under concurrent threads).
 
     Returns:
-        True if the row was newly created, False if an existing row was found.
+        ``"created"``   — new row inserted.
+        ``"refreshed"`` — existing row found; mutable fields (value_type, metadata,
+                          confidence) differed and were updated.
+        ``"unchanged"`` — existing row found; all persisted fields identical — no
+                          DB write performed.
     """
     from src.web.persons.models import PersonAttribute  # noqa: PLC0415 (circular — see module note)
 
@@ -265,15 +270,21 @@ def _persist_attribute(
     }
     existing = PersonAttribute.objects.filter(**lookup).first()
     if existing is not None:
-        # Row already exists with identical (person, source, key, value) — update
-        # mutable fields in case metadata or confidence changed.
-        PersonAttribute.objects.filter(pk=existing.pk).update(
-            value_type=result.value_type,
-            metadata=meta,
-            confidence=result.confidence,
-            updated_at=timezone.now(),
-        )
-        return False
+        # Row already exists with identical (person, source, key, value).
+        # Only write if mutable fields differ; otherwise skip to avoid spurious
+        # updated_at touches and misleading refresh counts.
+        value_type_changed = existing.value_type != result.value_type
+        metadata_changed = (existing.metadata or None) != (meta or None)
+        confidence_changed = abs((existing.confidence or 0.0) - result.confidence) > 1e-9
+        if value_type_changed or metadata_changed or confidence_changed:
+            PersonAttribute.objects.filter(pk=existing.pk).update(
+                value_type=result.value_type,
+                metadata=meta,
+                confidence=result.confidence,
+                updated_at=timezone.now(),
+            )
+            return "refreshed"
+        return "unchanged"
 
     PersonAttribute.objects.create(
         **lookup,
@@ -281,7 +292,7 @@ def _persist_attribute(
         metadata=meta,
         confidence=result.confidence,
     )
-    return True
+    return "created"
 
 
 def _run_single_provider_in_thread(
@@ -317,10 +328,9 @@ def _run_single_provider(
     """
     from src.web.persons.models import EnrichmentRun  # noqa: PLC0415 (circular — see module note)
 
-    provider_saved = 0
-    provider_skipped = 0
-    provider_created = 0
-    provider_refreshed = 0
+    provider_saved = 0  # newly created rows
+    provider_refreshed = 0  # updated rows (value unchanged, mutable field differed)
+    provider_skipped = 0  # no-ops (unchanged) + validation failures + persist errors
     provider_warnings: list[EnrichmentWarning] = []
     db_run: EnrichmentRun | None = None
 
@@ -383,7 +393,7 @@ def _run_single_provider(
                 )
 
             try:
-                created = _persist_attribute(
+                outcome = _persist_attribute(
                     person.id,
                     provider.name,
                     result,
@@ -391,11 +401,12 @@ def _run_single_provider(
                     clean_labels,
                     clean_platform,
                 )
-                provider_saved += 1
-                if created:
-                    provider_created += 1
-                else:
+                if outcome == "created":
+                    provider_saved += 1
+                elif outcome == "refreshed":
                     provider_refreshed += 1
+                else:  # "unchanged"
+                    provider_skipped += 1
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "Failed to persist attribute '%s' from provider '%s'",
@@ -407,7 +418,7 @@ def _run_single_provider(
         db_run.status = "completed"
         db_run.attributes_saved = provider_saved
         db_run.attributes_skipped = provider_skipped
-        db_run.attributes_created = provider_created
+        db_run.attributes_created = 0  # retired — kept in DB for backward compat
         db_run.attributes_refreshed = provider_refreshed
         db_run.warnings = [w.__dict__ for w in provider_warnings]
 
@@ -426,7 +437,7 @@ def _run_single_provider(
         person_id=person.id,
         attributes_saved=provider_saved,
         attributes_skipped=provider_skipped,
-        attributes_created=provider_created,
+        attributes_created=0,  # retired — zero-filled
         attributes_refreshed=provider_refreshed,
         warnings=provider_warnings,
     )

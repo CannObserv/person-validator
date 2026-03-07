@@ -15,6 +15,7 @@ def run_enrichment_for_person(
     triggered_by: str,
     confirmed_wikidata_qid: str | None = None,
     force_rescore: bool = False,
+    force_re_extract: bool = False,
 ) -> None:
     """Build a PersonData snapshot and run the full EnrichmentRunner for a person.
 
@@ -29,6 +30,11 @@ def run_enrichment_for_person(
         force_rescore: When True, any existing ``wikidata_qid`` attribute is stripped
             from existing_attributes before providers run, forcing WikidataProvider
             to perform a fresh search instead of re-using the previously linked QID.
+        force_re_extract: When True, WikidataProvider re-fetches the already-known
+            QID from the Wikidata API and re-runs ``_extract()`` without repeating
+            search or creating a WikidataCandidateReview.  Useful for picking up
+            changed attributes (new occupations, updated descriptions, new external
+            identifiers, new aliases) without disturbing the existing identity link.
 
     Raises:
         Person.DoesNotExist: If no person with the given ID exists.
@@ -94,13 +100,17 @@ def run_enrichment_for_person(
     # - force_rescore: WikidataProvider ignores any existing wikidata_qid and
     #   performs a fresh search (defensive belt-and-suspenders alongside the
     #   attribute strip above).
+    # - force_re_extract: WikidataProvider re-fetches the already-known QID and
+    #   re-runs _extract() without repeating search or creating a review.
     provider_kwargs: dict[str, dict] | None = None
-    if confirmed_wikidata_qid or force_rescore:
+    if confirmed_wikidata_qid or force_rescore or force_re_extract:
         wikidata_kwargs: dict = {}
         if confirmed_wikidata_qid:
             wikidata_kwargs["confirmed_wikidata_qid"] = confirmed_wikidata_qid
         if force_rescore:
             wikidata_kwargs["force_rescore"] = True
+        if force_re_extract:
+            wikidata_kwargs["force_re_extract"] = True
         provider_kwargs = {"wikidata": wikidata_kwargs}
 
     try:

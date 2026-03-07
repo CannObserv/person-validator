@@ -172,8 +172,8 @@ class TestRunnerBasic:
         values = set(attrs.values_list("value", flat=True))
         assert values == {"author", "politician"}
 
-    def test_first_run_counts_created(self):
-        """attributes_created reflects net-new rows on first run."""
+    def test_first_run_counts_saved(self):
+        """attributes_saved reflects net-new rows on first run."""
         from src.web.persons.models import Person
 
         person = Person.objects.create(name="New Person")
@@ -184,11 +184,13 @@ class TestRunnerBasic:
         runner = EnrichmentRunner(_make_registry(provider))
         results = runner.run(_make_person(id=person.pk))
         run_result = results["acme"]
-        assert run_result.attributes_created == 1
+        assert run_result.attributes_saved == 1
         assert run_result.attributes_refreshed == 0
+        assert run_result.attributes_skipped == 0
+        assert run_result.attributes_created == 0  # retired field — always zero
 
-    def test_rerun_counts_refreshed_not_created(self):
-        """On re-run with unchanged output, created=0 and refreshed=n."""
+    def test_rerun_with_unchanged_value_counts_as_skipped(self):
+        """On re-run with identical value, unchanged rows are skipped (no DB write)."""
         from src.web.persons.models import Person
 
         person = Person.objects.create(name="Repeat Person")
@@ -199,13 +201,42 @@ class TestRunnerBasic:
         runner = EnrichmentRunner(_make_registry(provider))
         person_data = _make_person(id=person.pk)
         runner.run(person_data)  # first run — creates
-        results = runner.run(person_data)  # second run — refreshes
+        results = runner.run(person_data)  # second run — unchanged
         run_result = results["acme"]
-        assert run_result.attributes_created == 0
-        assert run_result.attributes_refreshed == 1
+        assert run_result.attributes_saved == 0
+        assert run_result.attributes_refreshed == 0
+        assert run_result.attributes_skipped == 1
 
-    def test_attributes_saved_equals_created_plus_refreshed(self):
-        """attributes_saved is the sum of created and refreshed."""
+    def test_rerun_with_changed_confidence_counts_as_refreshed(self):
+        """On re-run when confidence differs but value is the same, row is refreshed."""
+        from src.web.persons.models import Person, PersonAttribute
+
+        person = Person.objects.create(name="Conf Person")
+        # First run at 0.7
+        provider_low = _make_provider(
+            "acme",
+            [EnrichmentResult(key="bio", value="text", value_type="text", confidence=0.7)],
+        )
+        runner = EnrichmentRunner(_make_registry(provider_low))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)
+
+        # Second run at 0.9 — same value, different confidence
+        provider_high = _make_provider(
+            "acme",
+            [EnrichmentResult(key="bio", value="text", value_type="text", confidence=0.9)],
+        )
+        runner2 = EnrichmentRunner(_make_registry(provider_high))
+        results = runner2.run(person_data)
+        run_result = results["acme"]
+        assert run_result.attributes_refreshed == 1
+        assert run_result.attributes_saved == 0
+        assert run_result.attributes_skipped == 0
+        # Confidence should be updated in DB
+        assert PersonAttribute.objects.get(person=person, key="bio").confidence == 0.9
+
+    def test_attributes_saved_counts_only_created_rows(self):
+        """attributes_saved counts newly created rows, not unchanged or refreshed."""
         from src.web.persons.models import Person
 
         person = Person.objects.create(name="Mix Person")
@@ -218,12 +249,35 @@ class TestRunnerBasic:
         )
         runner = EnrichmentRunner(_make_registry(provider))
         person_data = _make_person(id=person.pk)
-        runner.run(person_data)  # creates both
-        results = runner.run(person_data)  # refreshes both
-        run_result = results["acme"]
-        assert run_result.attributes_saved == (
-            run_result.attributes_created + run_result.attributes_refreshed
+        first = runner.run(person_data)["acme"]
+        assert first.attributes_saved == 2
+        assert first.attributes_skipped == 0
+
+        second = runner.run(person_data)["acme"]
+        assert second.attributes_saved == 0
+        assert second.attributes_skipped == 2
+
+    def test_unchanged_attribute_not_written_to_db(self):
+        """No DB write occurs when value is identical on re-run."""
+        from src.web.persons.models import Person, PersonAttribute
+
+        person = Person.objects.create(name="No Write Person")
+        provider = _make_provider(
+            "acme",
+            [EnrichmentResult(key="bio", value="same", value_type="text", confidence=0.9)],
         )
+        runner = EnrichmentRunner(_make_registry(provider))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)  # first run — creates
+
+        attr_after_first = PersonAttribute.objects.get(person=person, key="bio")
+        updated_at_after_first = attr_after_first.updated_at
+
+        runner.run(person_data)  # second run — should not touch the attribute row
+
+        attr_after_second = PersonAttribute.objects.get(person=person, key="bio")
+        # updated_at must not advance — no DB write happened on the unchanged attribute
+        assert attr_after_second.updated_at == updated_at_after_first
 
 
 @pytest.mark.django_db

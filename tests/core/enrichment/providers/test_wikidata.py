@@ -522,6 +522,142 @@ class TestWikidataProviderEnrich:
         assert result == []
         client.search_entities.assert_not_called()
 
+    def test_force_re_extract_fetches_known_qid(self, db):
+        """force_re_extract=True fetches and extracts the existing QID without search."""
+        from src.web.persons.models import Person
+
+        entity = _make_entity()
+        client = _make_fake_client(entity_map={"Q23": entity})
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(
+            person_id=str(person_obj.pk),
+            existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
+        )
+        provider = self._make_provider(client)
+
+        result = provider.enrich(person, force_re_extract=True)
+
+        client.search_entities.assert_not_called()
+        keys = {r.key for r in result}
+        assert "wikidata_qid" in keys
+        assert "wikidata_url" in keys
+
+    def test_force_re_extract_without_existing_qid_returns_empty(self, db):
+        """force_re_extract=True with no existing wikidata_qid returns empty."""
+        # Nothing to re-extract when the person has no wikidata_qid yet.
+        from src.web.persons.models import Person
+
+        client = _make_fake_client()
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(person_id=str(person_obj.pk))
+        provider = self._make_provider(client)
+
+        result = provider.enrich(person, force_re_extract=True)
+
+        assert result == []
+        client.search_entities.assert_not_called()
+        client.get_entities.assert_not_called()
+
+    def test_force_re_extract_does_not_create_candidate_review(self, db):
+        """force_re_extract=True never creates a WikidataCandidateReview."""
+        from src.web.persons.models import Person, WikidataCandidateReview
+
+        entity = _make_entity()
+        client = _make_fake_client(entity_map={"Q23": entity})
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(
+            person_id=str(person_obj.pk),
+            existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
+        )
+        provider = self._make_provider(client)
+
+        provider.enrich(person, force_re_extract=True)
+
+        assert WikidataCandidateReview.objects.filter(person=person_obj).count() == 0
+
+    def test_force_re_extract_creates_new_aliases(self, db):
+        """force_re_extract=True creates PersonName aliases found on the entity."""
+        from src.web.persons.models import Person, PersonName
+
+        entity = _make_entity(aliases=["G. Washington", "First POTUS"])
+        client = _make_fake_client(entity_map={"Q23": entity})
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(
+            person_id=str(person_obj.pk),
+            existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
+        )
+        provider = self._make_provider(client)
+
+        provider.enrich(person, force_re_extract=True)
+
+        alias_names = set(
+            PersonName.objects.filter(person=person_obj, source="wikidata").values_list(
+                "full_name", flat=True
+            )
+        )
+        assert "G. Washington" in alias_names
+        assert "First POTUS" in alias_names
+
+    def test_force_re_extract_uses_existing_confidence(self, db):
+        """force_re_extract reads confidence from the existing wikidata_qid attribute."""
+        from src.web.persons.models import Person
+
+        entity = _make_entity()
+        client = _make_fake_client(entity_map={"Q23": entity})
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(
+            person_id=str(person_obj.pk),
+            existing_attributes=[
+                {
+                    "key": "wikidata_qid",
+                    "value": "Q23",
+                    "value_type": "text",
+                    "confidence": WikidataProvider.CONFIRMED_CONFIDENCE,
+                },
+            ],
+        )
+        provider = self._make_provider(client)
+
+        results = provider.enrich(person, force_re_extract=True)
+
+        qid_result = next(r for r in results if r.key == "wikidata_qid")
+        assert qid_result.confidence == WikidataProvider.CONFIRMED_CONFIDENCE
+
+    def test_force_re_extract_defaults_to_auto_link_confidence_when_missing(self, db):
+        """force_re_extract falls back to AUTO_LINK_CONFIDENCE when no confidence stored."""
+        from src.web.persons.models import Person
+
+        entity = _make_entity()
+        client = _make_fake_client(entity_map={"Q23": entity})
+        person_obj = Person.objects.create(name="George Washington")
+        # existing_attributes dict has no 'confidence' key
+        person = _make_person(
+            person_id=str(person_obj.pk),
+            existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
+        )
+        provider = self._make_provider(client)
+
+        results = provider.enrich(person, force_re_extract=True)
+
+        qid_result = next(r for r in results if r.key == "wikidata_qid")
+        assert qid_result.confidence == WikidataProvider.AUTO_LINK_CONFIDENCE
+
+    def test_force_re_extract_qid_not_found_returns_empty(self, db):
+        """force_re_extract returns empty when the known QID is not found in Wikidata."""
+        from src.web.persons.models import Person
+
+        client = _make_fake_client(entity_map={})  # QID not found
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(
+            person_id=str(person_obj.pk),
+            existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
+        )
+        provider = self._make_provider(client)
+
+        result = provider.enrich(person, force_re_extract=True)
+
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # Extraction: dates and attributes
