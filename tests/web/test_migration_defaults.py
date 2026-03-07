@@ -61,3 +61,41 @@ class TestExternalPlatformDefaults:
         all_slugs = self.SOCIAL_SLUGS | self.AUTHORITY_SLUGS
         inactive = ExternalPlatform.objects.filter(slug__in=all_slugs, is_active=False)
         assert inactive.count() == 0
+
+
+@pytest.mark.django_db
+class TestP2390MigrationSeed:
+    """Verify that the 0015 data migration seeded P2390 correctly."""
+
+    def test_p2390_exists(self):
+        from src.web.persons.models import ExternalIdentifierProperty
+
+        prop = ExternalIdentifierProperty.objects.get(wikidata_property_id="P2390")
+        assert prop.slug == "ballotpedia-id"
+        assert prop.display == "Ballotpedia ID"
+        assert prop.formatter_url == "https://ballotpedia.org/$1"
+        assert prop.is_enabled is True
+
+    def test_p2390_linked_to_ballotpedia_platform(self):
+        from src.web.persons.models import ExternalIdentifierProperty
+
+        prop = ExternalIdentifierProperty.objects.get(wikidata_property_id="P2390")
+        assert prop.platform is not None
+        assert prop.platform.slug == "ballotpedia"
+
+    def test_p2390_upsert_is_idempotent(self):
+        """Running the seed function twice does not raise or duplicate rows."""
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        from src.web.persons.models import ExternalIdentifierProperty
+
+        mod = importlib.import_module(
+            "src.web.persons.migrations.0015_seed_p2390_ballotpedia_property"
+        )
+
+        # Run seed again (simulates running migration on existing data)
+        mod.seed_ballotpedia_property(django_apps, None)
+        count = ExternalIdentifierProperty.objects.filter(wikidata_property_id="P2390").count()
+        assert count == 1

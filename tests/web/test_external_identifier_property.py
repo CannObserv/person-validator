@@ -443,7 +443,8 @@ class TestSyncWikidataPropertiesCommand:
 
         mock_get.side_effect = side_effect
         self._run()
-        assert ExternalIdentifierProperty.objects.count() == 501
+        # 500 (page1) + 1 (page2/VIAF) synced + 1 pre-seeded P2390 from migration
+        assert ExternalIdentifierProperty.objects.count() == 502
         # page1 (500 rows) + page2 (1 row) = 2 SPARQL requests minimum
         assert mock_get.call_count >= 2
 
