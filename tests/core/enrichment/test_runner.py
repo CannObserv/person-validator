@@ -773,3 +773,50 @@ class TestRunnerProviderKwargs:
 
         assert received["a"] == {"my_flag": True}
         assert received["b"] == {}
+
+    def test_duplicate_attribute_not_created_on_rerun(self):
+        """Running a provider twice with identical output must not create duplicate rows."""
+        from src.web.persons.models import Person, PersonAttribute
+
+        person = Person.objects.create(name="Dup Person")
+        provider = _make_provider(
+            "acme",
+            [
+                EnrichmentResult(
+                    key="employer", value="Acme Corp", value_type="text", confidence=0.9
+                )
+            ],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)
+        runner.run(person_data)
+
+        assert PersonAttribute.objects.filter(person=person, key="employer").count() == 1
+
+    def test_distinct_values_for_same_key_all_preserved(self):
+        """Multi-value keys (e.g. occupation) with different values are each kept once."""
+        from src.web.persons.models import Person, PersonAttribute
+
+        person = Person.objects.create(name="Poly Person")
+        provider = _make_provider(
+            "acme",
+            [
+                EnrichmentResult(
+                    key="occupation", value="author", value_type="text", confidence=0.9
+                ),
+                EnrichmentResult(
+                    key="occupation", value="politician", value_type="text", confidence=0.9
+                ),
+            ],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)
+        runner.run(person_data)
+
+        # Both distinct values should exist, but no duplicates of either.
+        attrs = PersonAttribute.objects.filter(person=person, key="occupation")
+        assert attrs.count() == 2
+        values = set(attrs.values_list("value", flat=True))
+        assert values == {"author", "politician"}

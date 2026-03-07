@@ -58,7 +58,7 @@ person-validator/
 │   │           ├── wikimedia_client.py  # WikimediaHttpClient — shared session, retry, Action API + SPARQL + Wikipedia REST API
 │   │           ├── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract
 │   │           ├── wikipedia.py         # WikipediaProvider — enwiki sitelink → article URL + plain-text extract
-│   │           └── ballotpedia.py       # BallotpediaProvider — US political figures via Ballotpedia MediaWiki API
+│   │           └── ballotpedia.py       # BallotpediaProvider — US political figures via Ballotpedia MediaWiki API (categories-based: emits ballotpedia_url + party; NoMatchSignal only on missing page/slug)
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend

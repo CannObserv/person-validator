@@ -249,14 +249,16 @@ def _persist_attribute(
     # Coerce AnyUrl to string for storage.
     value_str = str(validated.value)
 
-    PersonAttribute.objects.create(
+    PersonAttribute.objects.update_or_create(
         person_id=person_id,
         source=provider_name,
         key=result.key,
         value=value_str,
-        value_type=result.value_type,
-        metadata=meta,
-        confidence=result.confidence,
+        defaults={
+            "value_type": result.value_type,
+            "metadata": meta,
+            "confidence": result.confidence,
+        },
     )
 
 
