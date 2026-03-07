@@ -101,3 +101,41 @@ class TestRunEnrichmentForPersonConfirmedQid:
         assert captured.get("force_rescore") is True, (
             "force_rescore was not forwarded to WikidataProvider.enrich()"
         )
+
+
+@pytest.mark.django_db
+class TestRunEnrichmentRegisteredProviders:
+    """Verify run_enrichment_for_person registers all expected providers.
+
+    Guards against accidental omission when new providers are added.
+    """
+
+    def test_all_providers_registered(self):
+        """All production providers are registered in run_enrichment_for_person."""
+        from unittest.mock import patch
+
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="Test Person")
+        captured_names: list[str] = []
+
+        original_register = None
+
+        from src.core.enrichment.registry import ProviderRegistry
+
+        original_register = ProviderRegistry.register
+
+        def capturing_register(self_registry, provider, **kwargs):
+            captured_names.append(provider.name)
+            return original_register(self_registry, provider, **kwargs)
+
+        with patch.object(ProviderRegistry, "register", capturing_register):
+            with patch("src.core.enrichment.runner.EnrichmentRunner.run", return_value=[]):
+                run_enrichment_for_person(
+                    person_id=str(person.pk),
+                    triggered_by="test",
+                )
+
+        assert "wikidata" in captured_names, "WikidataProvider not registered"
+        assert "wikipedia" in captured_names, "WikipediaProvider not registered"
+        assert "ballotpedia" in captured_names, "BallotpediaProvider not registered"

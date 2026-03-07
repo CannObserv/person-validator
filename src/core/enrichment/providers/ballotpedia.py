@@ -72,7 +72,7 @@ class BallotpediaProvider(Provider):
     """
 
     name = "ballotpedia"
-    output_keys = ["ballotpedia_url", "party", "office_held", "state"]
+    output_keys = ["ballotpedia_url", "party", "office_held", "state", "birth_date"]
     refresh_interval = timedelta(days=1)
     dependencies = [
         Dependency("wikidata_qid", skip_if_absent=True),
@@ -117,7 +117,7 @@ class BallotpediaProvider(Provider):
 
         pages = data.get("query", {}).get("pages", {})
         page = next(iter(pages.values()), {})
-        if "missing" in page or page.get("pageid") is None and "missing" in page:
+        if "missing" in page:
             logger.info(
                 "ballotpedia_provider.page_missing",
                 extra={"slug": slug, "person_id": person.id},

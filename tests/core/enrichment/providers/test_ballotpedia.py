@@ -120,6 +120,7 @@ def test_output_keys():
         "party",
         "office_held",
         "state",
+        "birth_date",
     }
 
 

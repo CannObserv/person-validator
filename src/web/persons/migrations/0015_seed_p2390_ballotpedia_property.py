@@ -22,8 +22,8 @@ def seed_ballotpedia_property(apps, schema_editor):
     ExternalIdentifierProperty.objects.update_or_create(
         wikidata_property_id="P2390",
         defaults={
-            "slug": "ballotpedia-id",
-            "display": "Ballotpedia ID",
+            "slug": "ballotpedia-slug",
+            "display": "Ballotpedia page slug",
             "description": "Ballotpedia page slug for a person",
             "formatter_url": "https://ballotpedia.org/$1",
             "subject_item_label": "Ballotpedia",

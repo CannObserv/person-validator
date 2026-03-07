@@ -71,8 +71,8 @@ class TestP2390MigrationSeed:
         from src.web.persons.models import ExternalIdentifierProperty
 
         prop = ExternalIdentifierProperty.objects.get(wikidata_property_id="P2390")
-        assert prop.slug == "ballotpedia-id"
-        assert prop.display == "Ballotpedia ID"
+        assert prop.slug == "ballotpedia-slug"
+        assert prop.display == "Ballotpedia page slug"
         assert prop.formatter_url == "https://ballotpedia.org/$1"
         assert prop.is_enabled is True
 

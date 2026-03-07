@@ -57,7 +57,8 @@ person-validator/
 │   │       └── providers/    # Concrete enrichment provider implementations
 │   │           ├── wikimedia_client.py  # WikimediaHttpClient — shared session, retry, Action API + SPARQL + Wikipedia REST API
 │   │           ├── wikidata.py          # WikidataProvider — search, disambiguate, auto-link, extract
-│   │           └── wikipedia.py         # WikipediaProvider — enwiki sitelink → article URL + plain-text extract
+│   │           ├── wikipedia.py         # WikipediaProvider — enwiki sitelink → article URL + plain-text extract
+│   │           └── ballotpedia.py       # BallotpediaProvider — US political figures via Ballotpedia MediaWiki API
 │   └── web/                  # Django application
 │       ├── config/           # Settings, urls, wsgi/asgi
 │       ├── accounts/         # User model + exe.dev email auth backend
@@ -118,7 +119,7 @@ OR-expanded clause for (given, surname) pair matches.
 | `persons_personattribute` | persons | Enrichment data (append-only EAV); `value_type` (indexed) + `metadata` (JSONField) |
 | `persons_attributelabel` | persons | Controlled label vocabulary per `value_type` (e.g. "work", "home") |
 | `persons_externalplatform` | persons | Controlled platform/identity vocabulary for `platform_url` attributes |
-| `persons_externalidentifierproperty` | persons | Wikidata external identifier property taxonomy; used by WikidataProvider to extract and construct URLs; managed by `sync_wikidata_properties` command |
+| `persons_externalidentifierproperty` | persons | Wikidata external identifier property taxonomy; used by WikidataProvider to extract and construct URLs; managed by `sync_wikidata_properties` command. **Note:** P2390 (Ballotpedia) is seeded by migration 0015 — not imported by sync (structural SPARQL filter gap). |
 | `persons_enrichmentrun` | persons | Audit log of provider runs (one row per person+provider invocation) |
 | `persons_wikidatacandidatereview` | persons | Ambiguous/low-confidence Wikidata search results queued for admin review; post-save signal triggers enrichment on acceptance |
 | `keys_apikey` | keys | API key hashes for FastAPI auth |
@@ -128,6 +129,15 @@ Defined in `src/core/enrichment/attribute_types.VALUE_TYPE_CHOICES` (imported by
 
 **Labelable types** (`metadata["label"]` supported): `email`, `phone`, `url`, `platform_url`, `location`.
 Defined in `src/core/enrichment/attribute_types.LABELABLE_TYPES`.
+
+### Enrichment provider attribute key convention
+
+Attribute keys written by downstream providers (those depending on `wikidata_qid`) follow the pattern `{platform}-{identifier-type}`, where `identifier-type` describes the semantic nature of the value:
+
+- Use **`-slug`** for human-readable URL path components (e.g. `ballotpedia-slug` → `Nancy_Pelosi`).
+- Use **`-id`** for opaque numeric or alphanumeric identifiers (e.g. `opensecrets-crp-id` → `N00007360`).
+
+The `ExternalIdentifierProperty.slug` field must match the attribute key that `WikidataProvider` will write (it uses `prop.slug` directly). Keep these in sync when adding new providers.
 
 ### Services
 
