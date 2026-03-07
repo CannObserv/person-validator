@@ -8,10 +8,10 @@ from src.core.enrichment.tasks import run_enrichment_for_person
 
 
 @pytest.mark.django_db
-class TestRunEnrichmentForPersonConfirmedQid:
-    """confirmed_wikidata_qid is forwarded to WikidataProvider.enrich() via runner.
+class TestRunEnrichmentForPerson:
+    """Tests for run_enrichment_for_person kwarg forwarding and provider registration.
 
-    Regression: previously tasks.py injected a synthetic wikidata_qid attribute
+    Regression note: previously tasks.py injected a synthetic wikidata_qid attribute
     into existing_attributes but never passed confirmed_wikidata_qid to the
     runner.  WikidataProvider then detected the synthetic attribute and returned
     early with "person already has wikidata_qid; skipping search", producing 0

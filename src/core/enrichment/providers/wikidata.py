@@ -370,6 +370,12 @@ class WikidataProvider(Provider):
             )
             if existing_attr is not None:
                 existing_qid = existing_attr["value"]
+                if not existing_qid:
+                    logger.warning(
+                        "WikidataProvider: wikidata_qid attribute is empty; skipping re-extraction",
+                        extra={"person_id": person.id},
+                    )
+                    return []
                 existing_confidence = float(
                     existing_attr.get("confidence") or self.AUTO_LINK_CONFIDENCE
                 )

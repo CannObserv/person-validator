@@ -505,6 +505,23 @@ class TestWikidataProviderEnrich:
         # search_entities must have been called (not skipped due to existing qid)
         client.search_entities.assert_called_once()
 
+    def test_no_existing_wikidata_qid_falls_through_to_search(self, db):
+        """Without an existing wikidata_qid, plain enrich() runs the search path."""
+        from src.web.persons.models import Person
+
+        entity = _make_entity()
+        client = _make_fake_client(
+            search_results=[{"id": "Q23"}],
+            entity_map={"Q23": entity},
+        )
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(person_id=str(person_obj.pk))  # no existing_attributes
+        provider = self._make_provider(client)
+
+        provider.enrich(person)
+
+        client.search_entities.assert_called_once()
+
     def test_existing_wikidata_qid_re_extracts(self, db):
         """If wikidata_qid already in existing_attributes, re-fetch and extract it."""
         from src.web.persons.models import Person
@@ -598,6 +615,7 @@ class TestWikidataProviderEnrich:
         entity = _make_entity()
         client = _make_fake_client(entity_map={"Q23": entity})
         person_obj = Person.objects.create(name="George Washington")
+        # existing_attributes dict has no 'confidence' key
         person = _make_person(
             person_id=str(person_obj.pk),
             existing_attributes=[{"key": "wikidata_qid", "value": "Q23", "value_type": "text"}],
@@ -608,6 +626,23 @@ class TestWikidataProviderEnrich:
 
         qid_result = next(r for r in results if r.key == "wikidata_qid")
         assert qid_result.confidence == WikidataProvider.AUTO_LINK_CONFIDENCE
+
+    def test_existing_wikidata_qid_empty_value_returns_empty(self, db):
+        """Returns empty when the stored wikidata_qid attribute has an empty value."""
+        from src.web.persons.models import Person
+
+        client = _make_fake_client()
+        person_obj = Person.objects.create(name="George Washington")
+        person = _make_person(
+            person_id=str(person_obj.pk),
+            existing_attributes=[{"key": "wikidata_qid", "value": "", "value_type": "text"}],
+        )
+        provider = self._make_provider(client)
+
+        result = provider.enrich(person)
+
+        assert result == []
+        client.get_entities.assert_not_called()
 
     def test_existing_wikidata_qid_not_found_returns_empty(self, db):
         """Returns empty when the known QID is not found in Wikidata."""
