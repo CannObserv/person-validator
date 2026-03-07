@@ -47,6 +47,14 @@ _USER_AGENT = "PersonValidator/0.1 (greg@cannabis.observer)"
 
 # Known party category names on Ballotpedia.  Matched against the raw
 # ``Category:<name>`` title returned by the API.
+#
+# Ballotpedia also uses ``Independent Party`` as a category alongside
+# ``Independent``.  ``Independent Party`` is intentionally excluded here
+# because the two categories co-occur on the same pages (e.g. Bernie Sanders,
+# Angus King) and ``Independent`` is the preferred short form.  Since
+# categories are iterated in alphabetical API order, ``Democratic Party`` sorts
+# before ``Independent``, which in turn sorts before ``Independent Party`` —
+# so when multiple matches are present the most specific recognised value wins.
 _PARTY_CATEGORIES: frozenset[str] = frozenset(
     [
         "Democratic Party",
@@ -140,9 +148,14 @@ class BallotpediaProvider(Provider):
         ]
 
         # 4. Extract party from category membership.
+        # Iterate the API-ordered list (alphabetical) rather than a set to ensure
+        # deterministic selection when multiple party categories are present
+        # (e.g. a politician who appears under both "Independent" and "Democratic Party").
         existing_keys = person.attribute_keys()
-        categories = {cat["title"].removeprefix("Category:") for cat in page.get("categories", [])}
-        party = next((c for c in categories if c in _PARTY_CATEGORIES), None)
+        category_names = [
+            cat["title"].removeprefix("Category:") for cat in page.get("categories", [])
+        ]
+        party = next((c for c in category_names if c in _PARTY_CATEGORIES), None)
         if party and "party" not in existing_keys:
             results.append(
                 EnrichmentResult(

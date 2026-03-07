@@ -125,6 +125,106 @@ class TestRunnerBasic:
         result = _aggregate(EnrichmentRunner(reg).run(pd), person_id=str(person.pk))
         assert result.person_id == person.pk
 
+    def test_duplicate_attribute_not_created_on_rerun(self):
+        """Running a provider twice with identical output must not create duplicate rows."""
+        from src.web.persons.models import Person, PersonAttribute
+
+        person = Person.objects.create(name="Dup Person")
+        provider = _make_provider(
+            "acme",
+            [
+                EnrichmentResult(
+                    key="employer", value="Acme Corp", value_type="text", confidence=0.9
+                )
+            ],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)
+        runner.run(person_data)
+
+        assert PersonAttribute.objects.filter(person=person, key="employer").count() == 1
+
+    def test_distinct_values_for_same_key_all_preserved(self):
+        """Multi-value keys (e.g. occupation) with different values are each kept once."""
+        from src.web.persons.models import Person, PersonAttribute
+
+        person = Person.objects.create(name="Poly Person")
+        provider = _make_provider(
+            "acme",
+            [
+                EnrichmentResult(
+                    key="occupation", value="author", value_type="text", confidence=0.9
+                ),
+                EnrichmentResult(
+                    key="occupation", value="politician", value_type="text", confidence=0.9
+                ),
+            ],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)
+        runner.run(person_data)
+
+        # Both distinct values should exist, but no duplicates of either.
+        attrs = PersonAttribute.objects.filter(person=person, key="occupation")
+        assert attrs.count() == 2
+        values = set(attrs.values_list("value", flat=True))
+        assert values == {"author", "politician"}
+
+    def test_first_run_counts_created(self):
+        """attributes_created reflects net-new rows on first run."""
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="New Person")
+        provider = _make_provider(
+            "acme",
+            [EnrichmentResult(key="bio", value="...", value_type="text", confidence=0.9)],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+        results = runner.run(_make_person(id=person.pk))
+        run_result = results["acme"]
+        assert run_result.attributes_created == 1
+        assert run_result.attributes_refreshed == 0
+
+    def test_rerun_counts_refreshed_not_created(self):
+        """On re-run with unchanged output, created=0 and refreshed=n."""
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="Repeat Person")
+        provider = _make_provider(
+            "acme",
+            [EnrichmentResult(key="bio", value="...", value_type="text", confidence=0.9)],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)  # first run — creates
+        results = runner.run(person_data)  # second run — refreshes
+        run_result = results["acme"]
+        assert run_result.attributes_created == 0
+        assert run_result.attributes_refreshed == 1
+
+    def test_attributes_saved_equals_created_plus_refreshed(self):
+        """attributes_saved is the sum of created and refreshed."""
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="Mix Person")
+        provider = _make_provider(
+            "acme",
+            [
+                EnrichmentResult(key="bio", value="...", value_type="text", confidence=0.9),
+                EnrichmentResult(key="role", value="admin", value_type="text", confidence=0.9),
+            ],
+        )
+        runner = EnrichmentRunner(_make_registry(provider))
+        person_data = _make_person(id=person.pk)
+        runner.run(person_data)  # creates both
+        results = runner.run(person_data)  # refreshes both
+        run_result = results["acme"]
+        assert run_result.attributes_saved == (
+            run_result.attributes_created + run_result.attributes_refreshed
+        )
+
 
 @pytest.mark.django_db
 class TestRunnerLabelStripping:
@@ -773,50 +873,3 @@ class TestRunnerProviderKwargs:
 
         assert received["a"] == {"my_flag": True}
         assert received["b"] == {}
-
-    def test_duplicate_attribute_not_created_on_rerun(self):
-        """Running a provider twice with identical output must not create duplicate rows."""
-        from src.web.persons.models import Person, PersonAttribute
-
-        person = Person.objects.create(name="Dup Person")
-        provider = _make_provider(
-            "acme",
-            [
-                EnrichmentResult(
-                    key="employer", value="Acme Corp", value_type="text", confidence=0.9
-                )
-            ],
-        )
-        runner = EnrichmentRunner(_make_registry(provider))
-        person_data = _make_person(id=person.pk)
-        runner.run(person_data)
-        runner.run(person_data)
-
-        assert PersonAttribute.objects.filter(person=person, key="employer").count() == 1
-
-    def test_distinct_values_for_same_key_all_preserved(self):
-        """Multi-value keys (e.g. occupation) with different values are each kept once."""
-        from src.web.persons.models import Person, PersonAttribute
-
-        person = Person.objects.create(name="Poly Person")
-        provider = _make_provider(
-            "acme",
-            [
-                EnrichmentResult(
-                    key="occupation", value="author", value_type="text", confidence=0.9
-                ),
-                EnrichmentResult(
-                    key="occupation", value="politician", value_type="text", confidence=0.9
-                ),
-            ],
-        )
-        runner = EnrichmentRunner(_make_registry(provider))
-        person_data = _make_person(id=person.pk)
-        runner.run(person_data)
-        runner.run(person_data)
-
-        # Both distinct values should exist, but no duplicates of either.
-        attrs = PersonAttribute.objects.filter(person=person, key="occupation")
-        assert attrs.count() == 2
-        values = set(attrs.values_list("value", flat=True))
-        assert values == {"author", "politician"}

@@ -240,8 +240,16 @@ def _persist_attribute(
     validated: AttributeValue,
     clean_labels: list[str],
     clean_platform: str | None = None,
-) -> None:
-    """Persist a single validated EnrichmentResult to the database."""
+) -> bool:
+    """Persist a single validated EnrichmentResult to the database.
+
+    Uses a filter-then-create pattern to avoid exact-duplicate rows without
+    relying on ``SELECT FOR UPDATE`` (which causes table-lock contention on
+    SQLite under concurrent threads).
+
+    Returns:
+        True if the row was newly created, False if an existing row was found.
+    """
     from src.web.persons.models import PersonAttribute  # noqa: PLC0415 (circular — see module note)
 
     meta = _build_metadata(validated, clean_labels, clean_platform)
@@ -249,17 +257,31 @@ def _persist_attribute(
     # Coerce AnyUrl to string for storage.
     value_str = str(validated.value)
 
-    PersonAttribute.objects.update_or_create(
-        person_id=person_id,
-        source=provider_name,
-        key=result.key,
-        value=value_str,
-        defaults={
-            "value_type": result.value_type,
-            "metadata": meta,
-            "confidence": result.confidence,
-        },
+    lookup = {
+        "person_id": person_id,
+        "source": provider_name,
+        "key": result.key,
+        "value": value_str,
+    }
+    existing = PersonAttribute.objects.filter(**lookup).first()
+    if existing is not None:
+        # Row already exists with identical (person, source, key, value) — update
+        # mutable fields in case metadata or confidence changed.
+        PersonAttribute.objects.filter(pk=existing.pk).update(
+            value_type=result.value_type,
+            metadata=meta,
+            confidence=result.confidence,
+            updated_at=timezone.now(),
+        )
+        return False
+
+    PersonAttribute.objects.create(
+        **lookup,
+        value_type=result.value_type,
+        metadata=meta,
+        confidence=result.confidence,
     )
+    return True
 
 
 def _run_single_provider_in_thread(
@@ -297,6 +319,8 @@ def _run_single_provider(
 
     provider_saved = 0
     provider_skipped = 0
+    provider_created = 0
+    provider_refreshed = 0
     provider_warnings: list[EnrichmentWarning] = []
     db_run: EnrichmentRun | None = None
 
@@ -359,7 +383,7 @@ def _run_single_provider(
                 )
 
             try:
-                _persist_attribute(
+                created = _persist_attribute(
                     person.id,
                     provider.name,
                     result,
@@ -368,6 +392,10 @@ def _run_single_provider(
                     clean_platform,
                 )
                 provider_saved += 1
+                if created:
+                    provider_created += 1
+                else:
+                    provider_refreshed += 1
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "Failed to persist attribute '%s' from provider '%s'",
@@ -379,6 +407,8 @@ def _run_single_provider(
         db_run.status = "completed"
         db_run.attributes_saved = provider_saved
         db_run.attributes_skipped = provider_skipped
+        db_run.attributes_created = provider_created
+        db_run.attributes_refreshed = provider_refreshed
         db_run.warnings = [w.__dict__ for w in provider_warnings]
 
     except Exception as exc:  # noqa: BLE001
@@ -396,6 +426,8 @@ def _run_single_provider(
         person_id=person.id,
         attributes_saved=provider_saved,
         attributes_skipped=provider_skipped,
+        attributes_created=provider_created,
+        attributes_refreshed=provider_refreshed,
         warnings=provider_warnings,
     )
 

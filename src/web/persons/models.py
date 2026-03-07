@@ -303,6 +303,8 @@ class EnrichmentRun(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
     attributes_saved = models.PositiveIntegerField(default=0)
     attributes_skipped = models.PositiveIntegerField(default=0)
+    attributes_created = models.PositiveIntegerField(default=0)
+    attributes_refreshed = models.PositiveIntegerField(default=0)
     warnings = models.JSONField(default=list)
     error = models.TextField(blank=True)
     triggered_by = models.CharField(

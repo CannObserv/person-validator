@@ -113,9 +113,9 @@ def test_output_keys():
 
 
 def test_dependencies_declared():
-    dep_keys = {d.attribute_key for d in BallotpediaProvider.dependencies}
-    assert "wikidata_qid" in dep_keys
-    assert "ballotpedia-slug" in dep_keys
+    deps = {d.attribute_key: d for d in BallotpediaProvider.dependencies}
+    assert deps["wikidata_qid"].skip_if_absent is True
+    assert deps["ballotpedia-slug"].skip_if_absent is True
 
 
 def test_required_platforms():
@@ -194,6 +194,21 @@ def test_enrich_no_party_when_no_matching_category():
     results = provider.enrich(_person())
     assert not any(r.key == "party" for r in results)
     assert any(r.key == "ballotpedia_url" for r in results)
+
+
+def test_enrich_party_deterministic_when_multiple_party_categories():
+    """When multiple party categories match, the alphabetically first is returned.
+
+    Ballotpedia returns categories in alphabetical order.  Some politicians
+    (e.g. independents who caucus with a party) carry both 'Independent' and
+    'Democratic Party' categories.  The provider must pick consistently.
+    """
+    # API returns categories alphabetically: 'Democratic Party' < 'Independent'
+    provider = _make_provider(response=_make_api_response(["Democratic Party", "Independent"]))
+    results = provider.enrich(_person())
+    party_result = next((r for r in results if r.key == "party"), None)
+    assert party_result is not None
+    assert party_result.value == "Democratic Party"
 
 
 def test_enrich_calls_api_with_correct_params():
