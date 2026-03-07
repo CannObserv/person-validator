@@ -13,7 +13,7 @@ Environment=DJANGO_SETTINGS_MODULE=src.web.config.settings
 Environment=DJANGO_DEBUG=0
 ExecStartPre=/home/exedev/person-validator/.venv/bin/python -m django migrate --noinput
 ExecStartPre=/home/exedev/person-validator/.venv/bin/python -m django collectstatic --noinput
-ExecStart=/home/exedev/person-validator/.venv/bin/gunicorn src.web.config.wsgi:application --bind 127.0.0.1:8000 --workers 2 --timeout 30
+ExecStart=/home/exedev/person-validator/.venv/bin/gunicorn src.web.config.wsgi:application --bind 127.0.0.1:8002 --workers 2 --timeout 30
 Restart=on-failure
 RestartSec=5
 
