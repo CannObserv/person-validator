@@ -7,7 +7,7 @@ metadata:
   version: "1.0"
   triggers: brainstorm, design this, let's design
   overrides: brainstorming
-  override-reason: "Project-specific conventions: docs/plans/ path, #<n> [type]: desc commit convention, writing-plans is optional not mandatory; Django/FastAPI stack context"
+  override-reason: "Project-specific conventions: docs/plans/ path, #<n> [type]: desc commit convention, writing-plans is optional not mandatory; invokes using-git-worktrees after design approval for any multi-step implementation; Django/FastAPI stack context"
 ---
 
 # Brainstorming Ideas Into Designs — person-validator
@@ -43,7 +43,8 @@ Create a task for each item and complete them in order:
 3. **Propose 2–3 approaches** — with trade-offs and a recommendation
 4. **Present design** — in sections scaled to complexity; get approval after each section
 5. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit
-6. **Hand off** — move to implementation, or invoke `writing-plans` if a formal plan is needed
+6. **Set up worktree** — invoke `using-git-worktrees` for any multi-step implementation
+7. **Hand off** — move to implementation, or invoke `writing-plans` if a formal plan is needed
 
 ## Process
 
@@ -83,6 +84,11 @@ Create a task for each item and complete them in order:
   ```
   docs: add design doc for <topic>
   ```
+
+**Set up a worktree (multi-step implementation):**
+- Invoke `using-git-worktrees` to create an isolated workspace on a feature branch
+- Use `.worktrees/` as the local directory (verify it is gitignored first)
+- Skip for single-commit or directed fixes where isolation adds no value
 
 **Hand off:**
 - For small changes: proceed directly to implementation

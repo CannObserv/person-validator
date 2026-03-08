@@ -85,7 +85,8 @@ person-validator/
 │   ├── writing-plans -> ../vendor/obra-superpowers/skills/writing-plans
 │   ├── writing-skills -> ../vendor/obra-superpowers/skills/writing-skills
 │   ├── subagent-driven-development -> ../vendor/obra-superpowers/skills/subagent-driven-development
-│   └── dispatching-parallel-agents -> ../vendor/obra-superpowers/skills/dispatching-parallel-agents
+│   ├── dispatching-parallel-agents -> ../vendor/obra-superpowers/skills/dispatching-parallel-agents
+│   └── using-git-worktrees -> ../vendor/obra-superpowers/skills/using-git-worktrees
 ├── vendor/
 │   ├── gregoryfoster-skills/    # Git submodule: github.com/gregoryfoster/skills
 │   └── obra-superpowers/        # Git submodule: github.com/obra/superpowers
@@ -379,6 +380,7 @@ To add a new external skill repo, follow the `managing-skills-claude` skill
 | `writing-skills` | Symlink → `vendor/obra-superpowers/` | write skill, new skill, author skill |
 | `subagent-driven-development` | Symlink → `vendor/obra-superpowers/` | subagent dev, dispatch agents |
 | `dispatching-parallel-agents` | Symlink → `vendor/obra-superpowers/` | parallel agents |
+| `using-git-worktrees` | Symlink → `vendor/obra-superpowers/` | set up worktree, create worktree |
 
 ¹ These obra/superpowers skills have no explicit trigger phrases — their SKILL.md descriptions instruct the agent when to apply them. The agent must use `systematic-debugging` whenever encountering any bug, test failure, or unexpected behavior; `verification-before-completion` before any completion claim or commit; and `test-driven-development` before writing any implementation code.
 
@@ -392,7 +394,7 @@ version must be fully self-contained.
 |---|---|
 | `reviewing-code-claude` | Django/FastAPI-specific review dimensions; ruff lint check; TDD discipline; pipeline stage contracts; migration safety; JSON logging; Iron Law + rationalization-prevention table; Phase 3.5 verification gate |
 | `shipping-work-claude` | Concrete `uv run pytest --no-cov` + `uv run ruff check` in `pre-ship.sh`; encodes `#<n> [type]: <desc>` commit convention; systemd restart step; Iron Law + HARD-GATE on partial issue closure |
-| `brainstorming` | Project conventions (docs/plans/ path, `#<n> [type]: desc` commit format); Django/FastAPI stack context; writing-plans optional not mandatory; proactive-suggestion mode instead of universal hard gate |
+| `brainstorming` | Project conventions (docs/plans/ path, `#<n> [type]: desc` commit format); invokes using-git-worktrees after design approval for multi-step work; Django/FastAPI stack context; writing-plans optional not mandatory; proactive-suggestion mode instead of universal hard gate |
 
 ### Authoring new skills
 

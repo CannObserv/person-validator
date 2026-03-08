@@ -33,3 +33,6 @@ staticfiles/
 
 # Gunicorn
 gunicorn.ctl
+
+# Git worktrees
+.worktrees/
