@@ -77,9 +77,18 @@ person-validator/
 ├── skills/                   # Agent skills (agentskills.io spec)
 │   ├── reviewing-code-claude/    # Local override
 │   ├── shipping-work-claude/     # Local override
-│   └── reviewing-architecture-claude -> ../vendor/gregoryfoster-skills/skills/reviewing-architecture-claude
+│   ├── brainstorming/            # Local override
+│   ├── reviewing-architecture-claude -> ../vendor/gregoryfoster-skills/skills/reviewing-architecture-claude
+│   ├── systematic-debugging -> ../vendor/obra-superpowers/skills/systematic-debugging
+│   ├── verification-before-completion -> ../vendor/obra-superpowers/skills/verification-before-completion
+│   ├── test-driven-development -> ../vendor/obra-superpowers/skills/test-driven-development
+│   ├── writing-plans -> ../vendor/obra-superpowers/skills/writing-plans
+│   ├── writing-skills -> ../vendor/obra-superpowers/skills/writing-skills
+│   ├── subagent-driven-development -> ../vendor/obra-superpowers/skills/subagent-driven-development
+│   └── dispatching-parallel-agents -> ../vendor/obra-superpowers/skills/dispatching-parallel-agents
 ├── vendor/
-│   └── gregoryfoster-skills/    # Git submodule: github.com/gregoryfoster/skills
+│   ├── gregoryfoster-skills/    # Git submodule: github.com/gregoryfoster/skills
+│   └── obra-superpowers/        # Git submodule: github.com/obra/superpowers
 ├── env                       # Local secrets (git-ignored)
 └── README.md
 ```
@@ -335,6 +344,7 @@ framework. A skill is either a **local override** (committed directory) or a
 | Repo | Submodule path |
 |---|---|
 | [`gregoryfoster/skills`](https://github.com/gregoryfoster/skills) | `vendor/gregoryfoster-skills/` |
+| [`obra/superpowers`](https://github.com/obra/superpowers) | `vendor/obra-superpowers/` |
 
 After cloning this project, initialize submodules:
 ```bash
@@ -343,12 +353,12 @@ git submodule update --init --recursive
 
 **At the start of every conversation**, pull the latest upstream skills:
 ```bash
-git submodule update --remote --merge vendor/gregoryfoster-skills
+git submodule update --remote --merge vendor/gregoryfoster-skills vendor/obra-superpowers
 ```
-If the submodule ref changed, commit it:
+If any submodule ref changed, commit it:
 ```bash
-git add vendor/gregoryfoster-skills
-git commit -m "chore: update gregoryfoster-skills submodule"
+git add vendor/gregoryfoster-skills vendor/obra-superpowers
+git commit -m "chore: update skills submodules"
 ```
 
 To add a new external skill repo, follow the `managing-skills-claude` skill
@@ -361,6 +371,16 @@ To add a new external skill repo, follow the `managing-skills-claude` skill
 | `reviewing-code-claude` | Local override | CR, code review, perform a review |
 | `reviewing-architecture-claude` | Symlink → `vendor/gregoryfoster-skills/` | AR, architecture review, architectural review |
 | `shipping-work-claude` | Local override | ship it, push GH, close GH, wrap up |
+| `brainstorming` | Local override | brainstorm, design this, let's design |
+| `systematic-debugging` | Symlink → `vendor/obra-superpowers/` | (description-driven¹) |
+| `verification-before-completion` | Symlink → `vendor/obra-superpowers/` | (description-driven¹) |
+| `test-driven-development` | Symlink → `vendor/obra-superpowers/` | (description-driven¹) |
+| `writing-plans` | Symlink → `vendor/obra-superpowers/` | write plan, implementation plan |
+| `writing-skills` | Symlink → `vendor/obra-superpowers/` | write skill, new skill, author skill |
+| `subagent-driven-development` | Symlink → `vendor/obra-superpowers/` | subagent dev, dispatch agents |
+| `dispatching-parallel-agents` | Symlink → `vendor/obra-superpowers/` | parallel agents |
+
+¹ These obra/superpowers skills have no explicit trigger phrases — their SKILL.md descriptions instruct the agent when to apply them. The agent must use `systematic-debugging` whenever encountering any bug, test failure, or unexpected behavior; `verification-before-completion` before any completion claim or commit; and `test-driven-development` before writing any implementation code.
 
 ### Local overrides
 
@@ -370,8 +390,18 @@ version must be fully self-contained.
 
 | Skill | Override reason |
 |---|---|
-| `reviewing-code-claude` | Adds `ruff` to gather-context; Django ORM safety, migration safety, pipeline stage contract, TDD discipline, JSON logging, and FastAPI/Pydantic-specific review dimensions |
-| `shipping-work-claude` | Concrete `uv run pytest -x` + `uv run ruff check` in `pre-ship.sh`; encodes `#<n> [type]: <desc>` commit convention |
+| `reviewing-code-claude` | Django/FastAPI-specific review dimensions; ruff lint check; TDD discipline; pipeline stage contracts; migration safety; JSON logging; Iron Law + rationalization-prevention table; Phase 3.5 verification gate |
+| `shipping-work-claude` | Concrete `uv run pytest --no-cov` + `uv run ruff check` in `pre-ship.sh`; encodes `#<n> [type]: <desc>` commit convention; systemd restart step; Iron Law + HARD-GATE on partial issue closure |
+| `brainstorming` | Project conventions (docs/plans/ path, `#<n> [type]: desc` commit format); Django/FastAPI stack context; writing-plans optional not mandatory; proactive-suggestion mode instead of universal hard gate |
+
+### Authoring new skills
+
+Follow the `writing-skills` TDD cycle:
+1. **RED** — run pressure scenarios (or mental model) without the skill; document where the agent fails
+2. **GREEN** — write a minimal SKILL.md that addresses those specific failures
+3. **REFACTOR** — find new rationalizations, close loopholes, re-test
+
+Skill frontmatter must include `triggers` in `metadata` for AGENTS.md discovery. New project-specific skills go in `skills/<name>/` as committed directories. Cross-project skills belong in `gregoryfoster/skills` (add via `managing-skills-claude`).
 
 ## Conventions
 

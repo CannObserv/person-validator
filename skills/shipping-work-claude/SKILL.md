@@ -4,15 +4,32 @@ description: "Finalizes work by ensuring everything is committed, pushed to the 
 compatibility: Designed for Claude. Requires git and gh CLI. Python project using uv, ruff, pytest, Django, systemd.
 metadata:
   author: gregoryfoster
-  version: "1.0"
+  version: "1.1"
   triggers: ship it, push GH, close GH, wrap up
   overrides: shipping-work-claude
-  override-reason: "Concrete test/lint commands (uv run pytest --no-cov, uv run ruff check); project commit convention (#n [type]: desc); systemd service restart step after push"
+  override-reason: "Concrete test/lint commands (uv run pytest --no-cov, uv run ruff check); project commit convention (#n [type]: desc); systemd service restart step after push; Iron Law + rationalization-prevention table; HARD-GATE on partial issue closure"
 ---
 
 # Shipping Work — person-validator
 
 Finalizes work: lint, tests, clean commit, push, GitHub issue comments and closure.
+
+## The Iron Law
+
+```
+NO PUSH WITHOUT PASSING TESTS — VERIFIED IN THIS SESSION
+NO ISSUE CLOSURE WITHOUT FULL IMPLEMENTATION — VERIFIED AGAINST ORIGINAL REQUIREMENTS
+```
+
+## Rationalization prevention
+
+| Thought | Reality |
+|---|---|
+| "Tests passed earlier in this session" | Run them again. State can change. Require fresh output. |
+| "It's basically done, just needs minor cleanup" | Incomplete = not done. Finish or explicitly descope before closing. |
+| "The issue will track follow-up work" | Only close if the core requirement is fully met. Open a new issue for follow-up. |
+| "gh push is failing, I'll skip it" | Resolve the error. Do not mark as shipped without a successful push. |
+| "User is in a hurry" | A bad ship is slower than a good one. Run the checklist. |
 
 ## Scope detection
 
@@ -29,7 +46,11 @@ Determine which GitHub issue(s) to close (priority order):
 bash skills/shipping-work-claude/scripts/pre-ship.sh
 ```
 
-Do not proceed if lint or tests fail.
+```
+NO CONTINUATION IF TESTS FAIL
+```
+
+If tests fail: stop, report the failure, fix it before proceeding. Do not push failing code under any circumstances.
 
 **Integration tests are always excluded** from `pre-ship.sh`. They hit live
 external services (Wikidata, Wikipedia) and are unsuitable for routine
@@ -82,11 +103,16 @@ Comment must include:
 
 ### Step 6 — Close GitHub issues
 
+<HARD-GATE>
+Before closing any issue, verify the original issue requirements against what was implemented:
+1. Re-read the issue body
+2. Confirm each stated requirement is addressed in commits
+3. If any requirement is missing: do NOT close — ask the user whether to descope or continue
+</HARD-GATE>
+
 ```bash
 bash skills/shipping-work-claude/scripts/close-issue.sh <number>
 ```
-
-Never close an issue that wasn't fully implemented — ask first if uncertain.
 
 ### Step 7 — Restart services if needed
 
