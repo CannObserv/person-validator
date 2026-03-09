@@ -1,0 +1,11 @@
+# Assumes exe.dev VM layout: project at /home/exedev/person-validator.
+# Update paths if deploying elsewhere.
+[Unit]
+Description=Person Validator — weekly Wikidata property sync
+
+[Timer]
+OnCalendar=Sun 03:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

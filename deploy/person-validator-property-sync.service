@@ -1,0 +1,15 @@
+# Assumes exe.dev VM layout: project at /home/exedev/person-validator.
+# Update paths if deploying elsewhere.
+[Unit]
+Description=Person Validator — weekly Wikidata property sync
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/person-validator
+EnvironmentFile=/home/exedev/person-validator/env
+Environment=DJANGO_SETTINGS_MODULE=src.web.config.settings
+ExecStart=/home/exedev/person-validator/.venv/bin/python -m django sync_wikidata_properties
+StandardOutput=journal
+StandardError=journal
