@@ -9,7 +9,6 @@ is empty (fresh deployment guard).
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
-from django.db.models import Max, Q
 from django.utils import timezone
 
 from src.core.enrichment.tasks import run_enrichment_for_person
@@ -47,18 +46,7 @@ def _stale_provider_names(person, providers) -> list[str]:
     provider_names = [p.name for p in providers]
     now = timezone.now()
 
-    # One query: latest started_at and status per provider for this person
-    latest = {
-        row["provider"]: row
-        for row in EnrichmentRun.objects.filter(
-            person=person, provider__in=provider_names
-        )
-        .values("provider")
-        .annotate(latest_started=Max("started_at"))
-    }
-
-    # We need the status of the most recent run; a second query per provider
-    # would be expensive. Instead fetch all runs and find the latest per provider.
+    # Fetch all runs and find the latest per provider (status + started_at).
     all_runs = list(
         EnrichmentRun.objects.filter(person=person, provider__in=provider_names)
         .values("provider", "started_at", "status")

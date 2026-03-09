@@ -2,12 +2,11 @@
 
 from datetime import timedelta
 from io import StringIO
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
 from django.utils import timezone
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -277,8 +276,13 @@ class TestCronAutoSync:
         ):
             _run_cron()
 
-        sync_calls = [c for c in mock_call_command.call_args_list if "sync_wikidata_properties" in str(c)]
-        assert len(sync_calls) >= 1, "Expected sync_wikidata_properties to be called when table is empty"
+        sync_calls = [
+            c for c in mock_call_command.call_args_list
+            if "sync_wikidata_properties" in str(c)
+        ]
+        assert len(sync_calls) >= 1, (
+            "Expected sync_wikidata_properties to be called when table is empty"
+        )
 
     @patch("src.web.persons.management.commands.run_enrichment_cron.call_command")
     def test_does_not_call_sync_when_table_populated(self, mock_call_command):
@@ -293,5 +297,10 @@ class TestCronAutoSync:
         ):
             _run_cron()
 
-        sync_calls = [c for c in mock_call_command.call_args_list if "sync_wikidata_properties" in str(c)]
-        assert len(sync_calls) == 0, "sync_wikidata_properties must not be called when table is populated"
+        sync_calls = [
+            c for c in mock_call_command.call_args_list
+            if "sync_wikidata_properties" in str(c)
+        ]
+        assert len(sync_calls) == 0, (
+            "sync_wikidata_properties must not be called when table is populated"
+        )
