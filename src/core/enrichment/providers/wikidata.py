@@ -663,6 +663,14 @@ class WikidataProvider(Provider):
             )
         }
 
+        if not enabled_props:
+            logger.warning(
+                "WikidataProvider: ExternalIdentifierProperty table is empty; "
+                "external ID extraction skipped. "
+                "Run: manage.py sync_wikidata_properties",
+            )
+            return results
+
         for prop_id, prop in enabled_props.items():
             if prop_id not in claims:
                 continue

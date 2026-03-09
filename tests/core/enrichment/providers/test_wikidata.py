@@ -1004,6 +1004,62 @@ class TestExternalIdentifierExtraction:
 
 
 # ---------------------------------------------------------------------------
+# Empty ExternalIdentifierProperty table warnings (#33)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestEmptyExternalIdentifierTableWarning:
+    """WikidataProvider emits a WARNING when ExternalIdentifierProperty is empty."""
+
+    def test_warning_logged_when_table_empty(self):
+        """A structured WARNING is emitted when no enabled properties exist."""
+        from unittest.mock import patch
+
+        from src.web.persons.models import ExternalIdentifierProperty, Person
+
+        # Ensure table is empty (delete the P2390 seed row from migration)
+        ExternalIdentifierProperty.objects.all().delete()
+
+        entity = _make_entity()
+        client = _make_fake_client(entity_map={"Q23": entity})
+        provider = WikidataProvider(http_client=client)
+
+        person_obj = Person.objects.create(name="Test Person")
+        person = _make_person(person_id=str(person_obj.pk))
+
+        with patch("src.core.enrichment.providers.wikidata.logger") as mock_logger:
+            provider.enrich(person, confirmed_wikidata_qid="Q23")
+
+        warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+        assert any("ExternalIdentifierProperty" in c for c in warning_calls), (
+            "Expected a WARNING mentioning ExternalIdentifierProperty when table is empty"
+        )
+        assert any("sync_wikidata_properties" in c for c in warning_calls), (
+            "Expected WARNING to name the management command operators should run"
+        )
+
+    def test_core_attributes_still_emitted_when_table_empty(self):
+        """Core Wikidata attributes (QID, label, Wikipedia URL) are emitted even
+        when ExternalIdentifierProperty table is empty."""
+        from src.web.persons.models import ExternalIdentifierProperty, Person
+
+        ExternalIdentifierProperty.objects.all().delete()
+
+        entity = _make_entity()
+        client = _make_fake_client(entity_map={"Q23": entity})
+        provider = WikidataProvider(http_client=client)
+
+        person_obj = Person.objects.create(name="Test Person")
+        person = _make_person(person_id=str(person_obj.pk))
+
+        results = provider.enrich(person, confirmed_wikidata_qid="Q23")
+        keys = {r.key for r in results}
+
+        assert "wikidata_qid" in keys, "wikidata_qid must still be emitted"
+
+
+# ---------------------------------------------------------------------------
 # Provider metadata
 # ---------------------------------------------------------------------------
 

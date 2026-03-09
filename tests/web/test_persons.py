@@ -719,3 +719,50 @@ class TestPersonNameConfidenceProvenance:
         pn.refresh_from_db()
         assert pn.confidence is None
         assert pn.provenance is None
+
+
+# ---------------------------------------------------------------------------
+# PersonsConfig.ready() — empty ExternalIdentifierProperty table warning (#33)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPersonsConfigReadyWarning:
+    """PersonsConfig.ready() emits a WARNING when ExternalIdentifierProperty is empty."""
+
+    def test_warning_emitted_when_table_empty(self):
+        """ready() logs a WARNING naming sync_wikidata_properties when table is empty."""
+        from unittest.mock import patch
+
+        from src.web.persons.apps import PersonsConfig
+        from src.web.persons.models import ExternalIdentifierProperty
+
+        ExternalIdentifierProperty.objects.all().delete()
+
+        with patch("src.web.persons.apps.logger") as mock_logger:
+            config = PersonsConfig("src.web.persons", __import__("src.web.persons"))
+            config.ready()
+
+        warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+        assert any("sync_wikidata_properties" in c for c in warning_calls), (
+            "Expected a WARNING naming sync_wikidata_properties when table is empty"
+        )
+
+    def test_no_warning_when_table_populated(self):
+        """ready() does not emit a warning when ExternalIdentifierProperty has rows."""
+        from unittest.mock import patch
+
+        from src.web.persons.apps import PersonsConfig
+        from src.web.persons.models import ExternalIdentifierProperty
+
+        # P2390 is seeded by migration; table is non-empty
+        assert ExternalIdentifierProperty.objects.exists()
+
+        with patch("src.web.persons.apps.logger") as mock_logger:
+            config = PersonsConfig("src.web.persons", __import__("src.web.persons"))
+            config.ready()
+
+        warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+        assert not any("sync_wikidata_properties" in c for c in warning_calls), (
+            "Expected no ExternalIdentifierProperty warning when table is populated"
+        )
