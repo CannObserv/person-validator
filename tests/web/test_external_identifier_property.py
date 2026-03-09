@@ -283,8 +283,16 @@ class TestSyncWikidataPropertiesCommand:
     @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
     def test_upsert_idempotent(self, mock_get):
         """Running twice with the same data produces one row."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
         mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF])
         self._run()
+        # Back-date so 24h guard allows second run
+        ExternalIdentifierProperty.objects.filter(wikidata_property_id="P214").update(
+            last_synced_at=timezone.now() - timedelta(hours=25)
+        )
         mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF])
         self._run()
         assert ExternalIdentifierProperty.objects.filter(wikidata_property_id="P214").count() == 1
@@ -292,8 +300,17 @@ class TestSyncWikidataPropertiesCommand:
     @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
     def test_updates_existing_fields(self, mock_get):
         """Re-running updates display name and formatter_url."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
         mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF])
         self._run()
+
+        # Back-date last_synced_at so the 24h guard does not block the second run.
+        ExternalIdentifierProperty.objects.filter(wikidata_property_id="P214").update(
+            last_synced_at=timezone.now() - timedelta(hours=25)
+        )
 
         updated_row = dict(SPARQL_ROW_VIAF)
         updated_row["propLabel"] = {"value": "VIAF ID (updated)"}
@@ -306,11 +323,16 @@ class TestSyncWikidataPropertiesCommand:
     @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
     def test_does_not_change_is_enabled_on_update(self, mock_get):
         """Re-running preserves the admin-set is_enabled flag."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
         mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF])
         self._run()
 
         ExternalIdentifierProperty.objects.filter(wikidata_property_id="P214").update(
-            is_enabled=False
+            is_enabled=False,
+            last_synced_at=timezone.now() - timedelta(hours=25),
         )
 
         mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF])
@@ -465,6 +487,65 @@ class TestSyncWikidataPropertiesCommand:
         self._run()
         prop = ExternalIdentifierProperty.objects.get(wikidata_property_id="P214")
         assert prop.last_synced_at is not None
+
+    @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
+    def test_dry_run_does_not_write(self, mock_get):
+        """--dry-run fetches data but writes no DB rows."""
+        mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF, SPARQL_ROW_ORCID])
+        self._run(dry_run=True)
+        # P2390 is pre-seeded by migration; P214 and P496 must not be created
+        assert not ExternalIdentifierProperty.objects.filter(wikidata_property_id="P214").exists()
+        assert not ExternalIdentifierProperty.objects.filter(wikidata_property_id="P496").exists()
+
+    @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
+    def test_dry_run_output_includes_counts(self, mock_get):
+        """--dry-run still prints the projected counts."""
+        mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF, SPARQL_ROW_ORCID])
+        output = self._run(dry_run=True)
+        assert "Created 2" in output
+
+    @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
+    def test_24h_guard_skips_recent_sync(self, mock_get):
+        """Command skips execution when last sync was within 24 hours."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        # Seed a recently-synced property so Max(last_synced_at) is recent
+        ExternalIdentifierProperty.objects.create(
+            wikidata_property_id="P214",
+            slug="viaf-cluster-id",
+            display="VIAF cluster ID",
+            last_synced_at=timezone.now() - timedelta(hours=1),
+        )
+        self._run()
+        # requests.get must not have been called — guard exited early
+        mock_get.assert_not_called()
+
+    @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
+    def test_24h_guard_runs_when_last_sync_is_old(self, mock_get):
+        """Command runs when last sync was more than 24 hours ago."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        ExternalIdentifierProperty.objects.create(
+            wikidata_property_id="P214",
+            slug="viaf-cluster-id",
+            display="VIAF cluster ID",
+            last_synced_at=timezone.now() - timedelta(hours=25),
+        )
+        mock_get.side_effect = _make_sparql_response([SPARQL_ROW_ORCID])
+        self._run()
+        mock_get.assert_called()
+
+    @patch("src.web.persons.management.commands.sync_wikidata_properties.requests.get")
+    def test_24h_guard_does_not_apply_when_table_empty(self, mock_get):
+        """Guard is skipped when no last_synced_at exists (fresh deployment)."""
+        # Table is empty by default (only P2390 seeded by migration, last_synced_at=None)
+        mock_get.side_effect = _make_sparql_response([SPARQL_ROW_VIAF])
+        self._run()
+        mock_get.assert_called()
 
 
 @pytest.mark.integration

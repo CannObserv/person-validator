@@ -8,9 +8,11 @@ property to an existing ExternalPlatform by matching slug.
 
 import re
 import time
+from datetime import timedelta
 
 import requests
 from django.core.management.base import BaseCommand
+from django.db.models import Max
 from django.utils import timezone
 
 from src.core.logging import configure_logging, get_logger
@@ -184,14 +186,35 @@ class Command(BaseCommand):
             default=PAGE_SIZE,
             help="Page size for SPARQL pagination (default: 500).",
         )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            default=False,
+            help="Fetch and report counts without writing to the database.",
+        )
 
     def handle(self, *args, **options):
         configure_logging()
         limit = options["limit"]
+        dry_run = options["dry_run"]
         offset = 0
         created = updated = skipped = warnings = auto_linked = 0
 
-        self.stdout.write("Fetching Wikidata external identifier properties...")
+        # 24h guard: skip if a sync completed within the past 24 hours.
+        # Guard is bypassed when last_synced_at is NULL (fresh deployment or empty table).
+        last_sync = ExternalIdentifierProperty.objects.aggregate(
+            latest=Max("last_synced_at")
+        )["latest"]
+        if last_sync is not None and (timezone.now() - last_sync) < timedelta(hours=24):
+            logger.info(
+                "sync_wikidata_properties: last sync was %s ago — skipping (24h guard)",
+                timezone.now() - last_sync,
+            )
+            return
+
+        self.stdout.write(
+            f"{'[dry-run] ' if dry_run else ''}Fetching Wikidata external identifier properties..."
+        )
 
         while True:
             now = timezone.now()
@@ -221,42 +244,44 @@ class Command(BaseCommand):
                 ).first()
 
                 if existing is None:
-                    prop = ExternalIdentifierProperty.objects.create(
-                        wikidata_property_id=property_id,
-                        slug=slug,
-                        display=label,
-                        description=parsed["description"],
-                        formatter_url=parsed["formatter_url"],
-                        subject_item_label=parsed["subject_item_label"],
-                        taxonomy_categories=parsed["taxonomy_categories"],
-                        last_synced_at=now,
-                    )
                     created += 1
-                    if _auto_link_platform(prop):
-                        auto_linked += 1
+                    if not dry_run:
+                        prop = ExternalIdentifierProperty.objects.create(
+                            wikidata_property_id=property_id,
+                            slug=slug,
+                            display=label,
+                            description=parsed["description"],
+                            formatter_url=parsed["formatter_url"],
+                            subject_item_label=parsed["subject_item_label"],
+                            taxonomy_categories=parsed["taxonomy_categories"],
+                            last_synced_at=now,
+                        )
+                        if _auto_link_platform(prop):
+                            auto_linked += 1
                 else:
-                    # Update all fields except is_enabled
-                    existing.slug = slug
-                    existing.display = label
-                    existing.description = parsed["description"]
-                    existing.formatter_url = parsed["formatter_url"]
-                    existing.subject_item_label = parsed["subject_item_label"]
-                    existing.taxonomy_categories = parsed["taxonomy_categories"]
-                    existing.last_synced_at = now
-                    existing.save(
-                        update_fields=[
-                            "slug",
-                            "display",
-                            "description",
-                            "formatter_url",
-                            "subject_item_label",
-                            "taxonomy_categories",
-                            "last_synced_at",
-                        ]
-                    )
                     updated += 1
-                    if _auto_link_platform(existing):
-                        auto_linked += 1
+                    if not dry_run:
+                        # Update all fields except is_enabled
+                        existing.slug = slug
+                        existing.display = label
+                        existing.description = parsed["description"]
+                        existing.formatter_url = parsed["formatter_url"]
+                        existing.subject_item_label = parsed["subject_item_label"]
+                        existing.taxonomy_categories = parsed["taxonomy_categories"]
+                        existing.last_synced_at = now
+                        existing.save(
+                            update_fields=[
+                                "slug",
+                                "display",
+                                "description",
+                                "formatter_url",
+                                "subject_item_label",
+                                "taxonomy_categories",
+                                "last_synced_at",
+                            ]
+                        )
+                        if _auto_link_platform(existing):
+                            auto_linked += 1
 
             if len(rows) < limit:
                 break
