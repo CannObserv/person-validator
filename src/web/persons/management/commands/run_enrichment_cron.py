@@ -11,7 +11,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from src.core.enrichment.tasks import run_enrichment_for_person
+from src.core.enrichment.tasks import _build_default_registry, run_enrichment_for_person
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -19,44 +19,50 @@ logger = get_logger(__name__)
 BATCH_SIZE = 50
 
 
-def _build_registry():
-    """Return a ProviderRegistry populated with all production providers."""
-    from src.core.enrichment.providers.ballotpedia import BallotpediaProvider  # noqa: PLC0415
-    from src.core.enrichment.providers.wikidata import WikidataProvider  # noqa: PLC0415
-    from src.core.enrichment.providers.wikipedia import WikipediaProvider  # noqa: PLC0415
-    from src.core.enrichment.registry import ProviderRegistry  # noqa: PLC0415
+def _prefetch_runs_for_batch(batch, providers) -> dict:
+    """Return {person_pk: {provider_name: latest_run_dict}} for all persons in *batch*.
 
-    registry = ProviderRegistry()
-    registry.register(WikidataProvider())
-    registry.register(WikipediaProvider())
-    registry.register(BallotpediaProvider())
-    return registry
+    Single DB query replaces per-person EnrichmentRun lookups in the main loop.
+    """
+    from src.web.persons.models import EnrichmentRun  # noqa: PLC0415
+
+    provider_names = [p.name for p in providers]
+    all_runs = list(
+        EnrichmentRun.objects.filter(person__in=batch, provider__in=provider_names)
+        .values("person_id", "provider", "started_at", "status")
+        .order_by("provider", "-started_at")
+    )
+    runs_by_person: dict = {}
+    for run in all_runs:
+        pid = run["person_id"]
+        pname = run["provider"]
+        runs_by_person.setdefault(pid, {})
+        if pname not in runs_by_person[pid]:
+            runs_by_person[pid][pname] = run
+    return runs_by_person
 
 
-def _stale_provider_names(person, providers) -> list[str]:
-    """Return names of providers that are stale for *person*.
+def _prefetch_rejected_person_ids(batch) -> set:
+    """Return the set of person PKs in *batch* with a rejected WikidataCandidateReview."""
+    from src.web.persons.models import WikidataCandidateReview  # noqa: PLC0415
+
+    return set(
+        WikidataCandidateReview.objects.filter(person__in=batch, status="rejected")
+        .values_list("person_id", flat=True)
+    )
+
+
+def _stale_provider_names(person_pk, providers, runs_by_person: dict, now) -> list[str]:
+    """Return names of providers that are stale for *person_pk*.
 
     A provider is stale when:
     - No EnrichmentRun exists for this person + provider, OR
     - Most recent run has status='failed', OR
     - Most recent run started_at < now - provider.refresh_interval
+
+    *runs_by_person* and *now* are pre-computed per batch to avoid per-person queries.
     """
-    from src.web.persons.models import EnrichmentRun  # noqa: PLC0415
-
-    provider_names = [p.name for p in providers]
-    now = timezone.now()
-
-    # Fetch all runs and find the latest per provider (status + started_at).
-    all_runs = list(
-        EnrichmentRun.objects.filter(person=person, provider__in=provider_names)
-        .values("provider", "started_at", "status")
-        .order_by("provider", "-started_at")
-    )
-    latest_run: dict[str, dict] = {}
-    for run in all_runs:
-        if run["provider"] not in latest_run:
-            latest_run[run["provider"]] = run
-
+    latest_run = runs_by_person.get(person_pk, {})
     stale = []
     for provider in providers:
         run = latest_run.get(provider.name)
@@ -67,15 +73,6 @@ def _stale_provider_names(person, providers) -> list[str]:
         elif run["started_at"] < now - provider.refresh_interval:
             stale.append(provider.name)
     return stale
-
-
-def _has_rejected_wikidata_review(person) -> bool:
-    """Return True if this person has any rejected WikidataCandidateReview."""
-    from src.web.persons.models import WikidataCandidateReview  # noqa: PLC0415
-
-    return WikidataCandidateReview.objects.filter(
-        person=person, status="rejected"
-    ).exists()
 
 
 class Command(BaseCommand):
@@ -122,7 +119,7 @@ class Command(BaseCommand):
         # ----------------------------------------------------------------
         from src.web.persons.models import ExternalIdentifierProperty  # noqa: PLC0415
 
-        if not dry_run and ExternalIdentifierProperty.objects.filter(is_enabled=True).count() == 0:
+        if not dry_run and not ExternalIdentifierProperty.objects.filter(is_enabled=True).exists():
             logger.info(
                 "run_enrichment_cron: ExternalIdentifierProperty table is empty — "
                 "triggering sync_wikidata_properties first",
@@ -132,7 +129,7 @@ class Command(BaseCommand):
         # ----------------------------------------------------------------
         # Build provider list (filter if --provider given)
         # ----------------------------------------------------------------
-        registry = _build_registry()
+        registry = _build_default_registry()
         all_providers = registry.enabled_providers()
 
         if provider_filter is not None:
@@ -174,14 +171,19 @@ class Command(BaseCommand):
                 break
             offset += BATCH_SIZE
 
+            # Two queries for the whole batch replace per-person queries.
+            runs_by_person = _prefetch_runs_for_batch(batch, providers)
+            rejected_pks = _prefetch_rejected_person_ids(batch)
+            now = timezone.now()
+
             for person in batch:
                 if limit is not None and total_processed >= limit:
                     break
 
-                stale = _stale_provider_names(person, providers)
+                stale = _stale_provider_names(person.pk, providers, runs_by_person, now)
 
                 # Wikidata: skip if person has a rejected review
-                if "wikidata" in stale and _has_rejected_wikidata_review(person):
+                if "wikidata" in stale and person.pk in rejected_pks:
                     stale = [n for n in stale if n != "wikidata"]
                     logger.info(
                         "run_enrichment_cron: skipping wikidata for %s (rejected review)",

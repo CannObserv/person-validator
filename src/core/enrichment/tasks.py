@@ -9,6 +9,20 @@ from src.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _build_default_registry():
+    """Return a ProviderRegistry populated with all production providers."""
+    from src.core.enrichment.providers.ballotpedia import BallotpediaProvider  # noqa: PLC0415
+    from src.core.enrichment.providers.wikidata import WikidataProvider  # noqa: PLC0415
+    from src.core.enrichment.providers.wikipedia import WikipediaProvider  # noqa: PLC0415
+    from src.core.enrichment.registry import ProviderRegistry  # noqa: PLC0415
+
+    registry = ProviderRegistry()
+    registry.register(WikidataProvider())
+    registry.register(WikipediaProvider())
+    registry.register(BallotpediaProvider())
+    return registry
+
+
 def run_enrichment_for_person(
     *,
     person_id: str,
@@ -38,7 +52,6 @@ def run_enrichment_for_person(
     """
     # Deferred to avoid AppRegistryNotReady at import time.
     from src.core.enrichment.base import PersonData  # noqa: PLC0415
-    from src.core.enrichment.registry import ProviderRegistry  # noqa: PLC0415
     from src.core.enrichment.runner import (  # noqa: PLC0415
         EnrichmentRunner,
         _load_existing_attributes,
@@ -76,14 +89,7 @@ def run_enrichment_for_person(
     # Build a registry containing all providers registered at call time.
     # For now, build a fresh registry on each call; a future issue may
     # introduce a module-level singleton populated at app startup.
-    from src.core.enrichment.providers.ballotpedia import BallotpediaProvider  # noqa: PLC0415
-    from src.core.enrichment.providers.wikidata import WikidataProvider  # noqa: PLC0415
-    from src.core.enrichment.providers.wikipedia import WikipediaProvider  # noqa: PLC0415
-
-    registry = ProviderRegistry()
-    registry.register(WikidataProvider())
-    registry.register(WikipediaProvider())
-    registry.register(BallotpediaProvider())
+    registry = _build_default_registry()
     if not registry.enabled_providers():
         logger.warning(
             "run_enrichment_for_person: no providers registered; enrichment is a no-op",
