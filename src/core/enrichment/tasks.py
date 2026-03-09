@@ -13,6 +13,7 @@ def run_enrichment_for_person(
     *,
     person_id: str,
     triggered_by: str,
+    provider_names: list[str] | None = None,
     confirmed_wikidata_qid: str | None = None,
     force_rescore: bool = False,
 ) -> None:
@@ -22,6 +23,8 @@ def run_enrichment_for_person(
         person_id: Primary key of the Person record.
         triggered_by: Audit label written to EnrichmentRun.triggered_by
             (e.g. "adjudication", "manual").
+        provider_names: If given, only these providers are run. None = all enabled.
+            Used by run_enrichment_cron to run only stale providers for a person.
         confirmed_wikidata_qid: When set, the ``wikidata_qid`` attribute is injected
             into PersonData.existing_attributes before providers run so that
             downstream providers whose dependency is ``wikidata_qid`` are included
@@ -104,7 +107,12 @@ def run_enrichment_for_person(
         provider_kwargs = {"wikidata": wikidata_kwargs}
 
     try:
-        runner.run(person_data, triggered_by=triggered_by, provider_kwargs=provider_kwargs)
+        runner.run(
+            person_data,
+            triggered_by=triggered_by,
+            provider_names=provider_names,
+            provider_kwargs=provider_kwargs,
+        )
     except Exception:
         logger.exception(
             "run_enrichment_for_person failed",

@@ -139,3 +139,47 @@ class TestRunEnrichmentRegisteredProviders:
         assert "wikidata" in captured_names, "WikidataProvider not registered"
         assert "wikipedia" in captured_names, "WikipediaProvider not registered"
         assert "ballotpedia" in captured_names, "BallotpediaProvider not registered"
+
+
+@pytest.mark.django_db
+class TestRunEnrichmentProviderNames:
+    """Tests for the provider_names parameter on run_enrichment_for_person."""
+
+    def test_provider_names_forwarded_to_runner(self):
+        """provider_names is passed through to EnrichmentRunner.run()."""
+        from unittest.mock import MagicMock, patch
+
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="Test Person")
+        mock_run = MagicMock(return_value={})
+
+        with patch("src.core.enrichment.runner.EnrichmentRunner.run", mock_run):
+            run_enrichment_for_person(
+                person_id=str(person.pk),
+                triggered_by="cron",
+                provider_names=["wikidata"],
+            )
+
+        _args, kwargs = mock_run.call_args
+        assert kwargs.get("provider_names") == ["wikidata"], (
+            "provider_names was not forwarded to EnrichmentRunner.run()"
+        )
+
+    def test_provider_names_none_by_default(self):
+        """When provider_names is omitted, None is passed to EnrichmentRunner.run()."""
+        from unittest.mock import MagicMock, patch
+
+        from src.web.persons.models import Person
+
+        person = Person.objects.create(name="Test Person")
+        mock_run = MagicMock(return_value={})
+
+        with patch("src.core.enrichment.runner.EnrichmentRunner.run", mock_run):
+            run_enrichment_for_person(
+                person_id=str(person.pk),
+                triggered_by="test",
+            )
+
+        _args, kwargs = mock_run.call_args
+        assert kwargs.get("provider_names") is None
