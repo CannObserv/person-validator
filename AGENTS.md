@@ -155,6 +155,8 @@ The `ExternalIdentifierProperty.slug` field must match the attribute key that `W
 |---|---|---|---|
 | Web/Admin | Django | 8000 | `person-validator-web` |
 | API | FastAPI | 8001 | `person-validator-api` |
+| Enrichment cron | Django mgmt cmd | — | `person-validator-enrichment-cron` (timer) |
+| Wikidata property sync | Django mgmt cmd | — | `person-validator-property-sync` (timer) |
 
 ### API Versioning Strategy
 
@@ -331,6 +333,28 @@ sudo systemctl status person-validator-api
 # View logs
 journalctl -u person-validator-web -f
 journalctl -u person-validator-api -f
+```
+
+#### Scheduled Jobs (systemd timers)
+
+```bash
+# Install timer and service units
+sudo cp deploy/person-validator-enrichment-cron.{timer,service} /etc/systemd/system/
+sudo cp deploy/person-validator-property-sync.{timer,service} /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Enable and start timers (survive reboot)
+sudo systemctl enable --now person-validator-enrichment-cron.timer
+sudo systemctl enable --now person-validator-property-sync.timer
+
+# Check timer status
+sudo systemctl list-timers person-validator-*
+
+# Run enrichment cron manually (useful for testing)
+DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django run_enrichment_cron
+
+# Run with dry-run to preview
+DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django run_enrichment_cron --dry-run
 ```
 
 ## Agent Skills
