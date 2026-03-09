@@ -1,0 +1,12 @@
+# Assumes exe.dev VM layout: project at /home/exedev/person-validator.
+# Update paths if deploying elsewhere.
+[Unit]
+Description=Person Validator — hourly enrichment cron
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

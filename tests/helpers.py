@@ -23,6 +23,7 @@ def run_django_migrations(db_path: Path) -> None:
         "import django, os; "
         "os.environ['DJANGO_SETTINGS_MODULE'] = 'src.web.config.settings'; "
         "django.setup(); "
+        "from django.db import connections; connections.close_all(); "
         "from django.conf import settings; "
         "settings.DATABASES['default']['NAME'] = os.environ['DATABASE_PATH']; "
         "from django.core.management import call_command; "
