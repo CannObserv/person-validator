@@ -376,14 +376,15 @@ After cloning this project, initialize submodules:
 git submodule update --init --recursive
 ```
 
-**At the start of every conversation**, pull the latest upstream skills:
+**Submodule freshness is enforced automatically** by a `UserPromptSubmit` hook in `.claude/settings.json`. At the start of the first conversation each day, the hook runs:
 ```bash
 git submodule update --remote --merge vendor/gregoryfoster-skills vendor/obra-superpowers
 ```
-If any submodule ref changed, commit it:
+and auto-commits any updated refs (`chore: update skills submodules`). No manual action is required.
+
+If you need to force-refresh mid-session:
 ```bash
-git add vendor/gregoryfoster-skills vendor/obra-superpowers
-git commit -m "chore: update skills submodules"
+git submodule update --remote --merge vendor/gregoryfoster-skills vendor/obra-superpowers
 ```
 
 To add a new external skill repo, follow the `managing-skills-claude` skill
