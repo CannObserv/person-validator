@@ -360,9 +360,24 @@ DJANGO_SETTINGS_MODULE=src.web.config.settings uv run python -m django run_enric
 ## Agent Skills
 
 This project follows the [agentskills.io](https://agentskills.io) spec.
-Skills live in the `skills/` directory and are auto-discovered by the agent
-framework. A skill is either a **local override** (committed directory) or a
-**symlink** to an external skills repo vendored as a git submodule.
+Skills live in the `skills/` directory and are also wired into Claude Code's
+native skill discovery path (`.claude/skills/`). A skill is either a **local
+override** (committed directory) or a **symlink** to an external skills repo
+vendored as a git submodule.
+
+### Skill directory layout
+
+Two directories serve different discovery systems:
+
+| Directory | Discovery system | Contents |
+|---|---|---|
+| `skills/` | agentskills.io | Committed overrides + symlinks → `vendor/` |
+| `.claude/skills/` | Claude Code | Symlinks → `../../skills/<name>` |
+
+All `.claude/skills/` entries point through `skills/`, so local overrides
+automatically shadow vendor skills in both systems without any duplication.
+When adding a new skill, **always create both** the `skills/<name>` entry and
+the `.claude/skills/<name>` symlink.
 
 ### External skill repos (git submodules)
 
@@ -406,6 +421,7 @@ To add a new external skill repo, follow the `managing-skills-claude` skill
 | `subagent-driven-development` | Symlink → `vendor/obra-superpowers/` | subagent dev, dispatch agents |
 | `dispatching-parallel-agents` | Symlink → `vendor/obra-superpowers/` | parallel agents |
 | `using-git-worktrees` | Symlink → `vendor/obra-superpowers/` | set up worktree, create worktree |
+| `managing-skills-claude` | Symlink → `vendor/gregoryfoster-skills/` | add skill repo, add external skills, manage skills, update skills submodule |
 
 ¹ These obra/superpowers skills have no explicit trigger phrases — their SKILL.md descriptions instruct the agent when to apply them. The agent must use `systematic-debugging` whenever encountering any bug, test failure, or unexpected behavior; `verification-before-completion` before any completion claim or commit; and `test-driven-development` before writing any implementation code.
 
@@ -428,7 +444,7 @@ Follow the `writing-skills` TDD cycle:
 2. **GREEN** — write a minimal SKILL.md that addresses those specific failures
 3. **REFACTOR** — find new rationalizations, close loopholes, re-test
 
-Skill frontmatter must include `triggers` in `metadata` for AGENTS.md discovery. New project-specific skills go in `skills/<name>/` as committed directories. Cross-project skills belong in `gregoryfoster/skills` (add via `managing-skills-claude`).
+Skill frontmatter must include `triggers` in `metadata` for AGENTS.md discovery. New project-specific skills go in `skills/<name>/` as committed directories, with a corresponding `.claude/skills/<name>` symlink pointing to `../../skills/<name>`. Cross-project skills belong in `gregoryfoster/skills` (add via `managing-skills-claude`).
 
 ## Conventions
 
