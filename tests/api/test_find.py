@@ -70,7 +70,8 @@ class TestFindNoMatches:
         )
         assert resp.status_code == 404
         body = resp.json()
-        assert body["query"]["normalized"] == "bob smith jr"
+        # NameParsing strips generational suffixes — "Jr." is removed
+        assert body["query"]["normalized"] == "bob smith"
 
 
 class TestFindInputClassification422:
