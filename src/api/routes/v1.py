@@ -20,7 +20,7 @@ from src.api.schemas import (
     QueryInfo,
 )
 from src.core.matching import search
-from src.core.pipeline import BasicNormalization, StageRegistry
+from src.core.pipeline import BasicNormalization, StageRegistry, WeightedVariant
 from src.core.reading import read_person
 
 # Assemble the default pipeline via the registry so stage order is
@@ -50,17 +50,23 @@ def find(
     """Find persons matching a name query."""
     pipeline_result = _default_pipeline.run(body.name)
     normalized = pipeline_result.resolved
-    # resolved is always searched first; variants produced by stages come after.
-    # dict.fromkeys preserves insertion order while deduplicating.
-    unique_variants: list[str] = list(dict.fromkeys([normalized, *pipeline_result.variants]))
+    # resolved is always searched first at full weight; stage-produced variants follow.
+    # Build a deduplicated list of WeightedVariants keyed by name; the first
+    # occurrence (resolved at weight 1.0) wins for any duplicated name.
+    resolved_variant = WeightedVariant(name=normalized, weight=1.0)
+    seen: dict[str, WeightedVariant] = {resolved_variant.name: resolved_variant}
+    for v in pipeline_result.variants:
+        if v.name not in seen:
+            seen[v.name] = v
+    weighted_variants: list[WeightedVariant] = list(seen.values())
 
     query_info = QueryInfo(
         original=body.name,
         normalized=normalized,
-        variants=unique_variants,
+        variants=[v.name for v in weighted_variants],
     )
 
-    matches = search(conn, unique_variants)
+    matches = search(conn, weighted_variants)
     results = [
         FindResult(
             id=m.person_id,

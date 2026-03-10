@@ -9,6 +9,8 @@ import re
 import sqlite3
 from dataclasses import dataclass
 
+from src.core.pipeline.base import WeightedVariant
+
 _NON_ALPHA_RE = re.compile(r"[^a-zA-Z\s]")
 _MULTI_SPACE_RE = re.compile(r"\s+")
 
@@ -31,12 +33,14 @@ class MatchResult:
     name_type: str
 
 
-def search(conn: sqlite3.Connection, variants: list[str]) -> list[MatchResult]:
-    """Search PersonName records for matches against one or more normalized variants.
+def search(conn: sqlite3.Connection, variants: list[WeightedVariant]) -> list[MatchResult]:
+    """Search PersonName records for matches against weighted name variants.
 
-    Accepts a list of normalized name strings and executes two batch queries:
-    1. Exact full_name match (IN clause) → certainty 1.0 primary / 0.9 other
-    2. given_name + surname combination (OR-expanded) → 0.8 primary / 0.7 other
+    Executes two batch queries across all variants:
+    1. Exact full_name match → base certainty 1.0 primary / 0.9 other
+    2. given_name + surname pair match → base certainty 0.8 primary / 0.7 other
+
+    Final certainty = base_certainty × variant.weight.
 
     Returns results sorted by certainty descending, one entry per person
     (highest certainty across all variants wins).
@@ -44,20 +48,25 @@ def search(conn: sqlite3.Connection, variants: list[str]) -> list[MatchResult]:
     if not variants:
         return []
 
+    weight_map = {v.name: v.weight for v in variants}
+    variant_names = [v.name for v in variants]
+
     best: dict[str, MatchResult] = {}
 
     # 1. Batch exact full_name match
-    placeholders = ",".join("?" * len(variants))
+    placeholders = ",".join("?" * len(variant_names))
     rows = conn.execute(
         f"SELECT pn.full_name, pn.name_type, pn.is_primary, p.id AS person_id"
         f" FROM persons_personname pn"
         f" JOIN persons_person p ON p.id = pn.person_id"
         f" WHERE LOWER(pn.full_name) IN ({placeholders})",
-        variants,
+        variant_names,
     ).fetchall()
 
     for row in rows:
-        certainty = 1.0 if row["is_primary"] else 0.9
+        base = 1.0 if row["is_primary"] else 0.9
+        weight = weight_map.get(row["full_name"].lower(), 1.0)
+        certainty = base * weight
         pid = row["person_id"]
         if pid not in best or certainty > best[pid].certainty:
             best[pid] = MatchResult(
@@ -67,20 +76,25 @@ def search(conn: sqlite3.Connection, variants: list[str]) -> list[MatchResult]:
                 name_type=row["name_type"],
             )
 
-    # 2. Batch given_name + surname match
-    # Build unique (given, surname) pairs from all multi-word variants.
-    pairs: list[tuple[str, str]] = list(
-        dict.fromkeys((parts[0], parts[-1]) for v in variants if len(parts := v.split()) >= 2)
-    )
+    # 2. Batch given_name + surname pair match.
+    # For each pair, track the maximum weight across all variants that produce it.
+    pair_weights: dict[tuple[str, str], float] = {}
+    for v in variants:
+        parts = v.name.split()
+        if len(parts) >= 2:
+            pair = (parts[0], parts[-1])
+            pair_weights[pair] = max(pair_weights.get(pair, 0.0), v.weight)
+
+    pairs = list(pair_weights.keys())
 
     if pairs:
-        # Expand to: (LOWER(given)=? AND LOWER(surname)=?) OR ...
         pair_clauses = " OR ".join(
             "(LOWER(pn.given_name) = ? AND LOWER(pn.surname) = ?)" for _ in pairs
         )
         params = [val for pair in pairs for val in pair]
         rows = conn.execute(
-            f"SELECT pn.full_name, pn.name_type, pn.is_primary, p.id AS person_id"
+            f"SELECT pn.full_name, pn.name_type, pn.is_primary, p.id AS person_id,"
+            f" pn.given_name, pn.surname"
             f" FROM persons_personname pn"
             f" JOIN persons_person p ON p.id = pn.person_id"
             f" WHERE {pair_clauses}",
@@ -90,8 +104,12 @@ def search(conn: sqlite3.Connection, variants: list[str]) -> list[MatchResult]:
         for row in rows:
             pid = row["person_id"]
             if pid in best:
-                continue  # Already matched with higher certainty
-            certainty = 0.8 if row["is_primary"] else 0.7
+                continue
+            base = 0.8 if row["is_primary"] else 0.7
+            given = (row["given_name"] or "").lower()
+            surname = (row["surname"] or "").lower()
+            weight = pair_weights.get((given, surname), 1.0)
+            certainty = base * weight
             best[pid] = MatchResult(
                 person_id=pid,
                 certainty=certainty,
