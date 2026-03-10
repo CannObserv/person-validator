@@ -58,7 +58,11 @@ class Stage(ABC):
 
 
 class Pipeline:
-    """An ordered chain of Stage instances."""
+    """An ordered chain of Stage instances.
+
+    Receives a raw name string, passes it through each stage in
+    sequence, and produces a final PipelineResult.
+    """
 
     def __init__(self, stages: list[Stage]) -> None:
         self.stages = stages

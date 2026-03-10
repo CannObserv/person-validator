@@ -7,6 +7,8 @@ import re
 from src.core.pipeline.base import PipelineResult, Stage
 
 # Matches characters to remove: everything except ASCII letters, whitespace, hyphens.
+# Explicitly uses [^a-zA-Z\s-] rather than [^\w\s-] so that underscores and
+# digits are also stripped, consistent with normalize() in matching.py.
 _STRIP_RE = re.compile(r"[^a-zA-Z\s-]")
 # Collapse runs of whitespace (including tabs/newlines)
 _SPACE_RE = re.compile(r"\s+")

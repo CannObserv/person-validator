@@ -26,7 +26,6 @@ _ORG_SUFFIXES = frozenset(
         "college",
         "school",
         "company",
-        "co",
         "trust",
         "agency",
         "bureau",

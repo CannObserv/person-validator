@@ -95,6 +95,25 @@ class TestFindInputClassification422:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.anyio
+    async def test_422_detail_shape_matches_pydantic(self, client, valid_api_key, tmp_db):
+        """Pipeline 422s must return the same shape as Pydantic validation errors."""
+        resp = await client.post(
+            "/v1/find",
+            json={"name": "Acme Corporation"},
+            headers={"X-API-Key": valid_api_key.raw_key},
+        )
+        assert resp.status_code == 422
+        body = resp.json()
+        # detail must be a list of dicts with "type", "loc", and "msg"
+        assert isinstance(body["detail"], list)
+        assert len(body["detail"]) >= 1
+        item = body["detail"][0]
+        assert "type" in item
+        assert "loc" in item
+        assert "msg" in item
+        assert any("organization" in entry["msg"].lower() for entry in body["detail"])
+
 
 class TestFindExactMatch:
     """Tests for exact-match scenarios."""

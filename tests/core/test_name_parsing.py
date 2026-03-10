@@ -2,6 +2,7 @@
 
 from src.core.pipeline.base import Pipeline, PipelineResult
 from src.core.pipeline.name_parsing import NameParsing
+from src.core.pipeline.stages import BasicNormalization
 
 
 def _run(name: str) -> PipelineResult:
@@ -21,6 +22,29 @@ class TestSurnameFirstDetection:
         result = _run("Denny Heck")
         assert result.resolved == "Denny Heck"
         assert result.messages == []
+
+    def test_surname_first_works_after_basic_normalization(self):
+        """Surname-first correction must work end-to-end, after BasicNormalization strips commas."""
+        pipeline = Pipeline(stages=[BasicNormalization(), NameParsing()])
+        result = pipeline.run("Heck, Denny")
+        assert result.resolved == "denny heck"
+
+    def test_suffix_comma_no_false_reorder(self):
+        """'Denny Heck, Jr.' has a suffix comma — must NOT trigger a surname-first message."""
+        result = _run("Denny Heck, Jr.")
+        assert "denny" in result.resolved.lower()
+        assert not any(
+            "reorder" in m.lower() or "surname-first" in m.lower() for m in result.messages
+        )
+
+    def test_suffix_comma_no_false_reorder_after_normalization(self):
+        """End-to-end: 'Denny Heck, Jr.' through BasicNormalization + NameParsing."""
+        pipeline = Pipeline(stages=[BasicNormalization(), NameParsing()])
+        result = pipeline.run("Denny Heck, Jr.")
+        assert result.resolved == "denny heck"
+        assert not any(
+            "reorder" in m.lower() or "surname-first" in m.lower() for m in result.messages
+        )
 
 
 class TestPrefixStripping:

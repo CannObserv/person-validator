@@ -21,18 +21,32 @@ class NameParsing(Stage):
     def process(self, result: PipelineResult) -> PipelineResult:
         """Parse and normalize the resolved name."""
         messages = list(result.messages)
-        name = HumanName(result.resolved)
 
-        # Detect surname-first: input contained a comma (e.g. "Heck, Denny")
-        was_surname_first = "," in result.resolved
+        # BasicNormalization runs before this stage and strips commas from
+        # result.resolved, so a comma in result.original is the only reliable
+        # signal for surname-first format (e.g. "Heck, Denny").  When present,
+        # parse from result.original so nameparser can see the comma marker.
+        has_comma = "," in result.original
+        source = result.original if has_comma else result.resolved
+        name = HumanName(source)
 
-        # Reconstruct: first [middle] last — drop title/prefix and suffix
+        # Reconstruct: first [middle] last — drop title/prefix and suffix.
         parts = [p for p in [name.first, name.middle, name.last] if p]
+        if has_comma:
+            # Parsed from result.original (original casing), but BasicNormalization
+            # has already run on resolved, so lowercase to stay consistent.
+            parts = [p.lower() for p in parts]
         resolved = " ".join(parts) if parts else result.resolved
 
-        original_sans_comma = result.resolved.replace(",", "").strip().lower()
-        if was_surname_first and resolved.lower() != original_sans_comma:
-            messages.append("Surname-first format detected and corrected")
+        # Report reordering only when the first token of the original actually
+        # differs from the parsed given name — distinguishes true surname-first
+        # ("Heck, Denny": first token "Heck" ≠ parsed first "Denny") from a
+        # generational suffix comma ("Denny Heck, Jr.": first token "Denny" ==
+        # parsed first "Denny").
+        if has_comma:
+            original_first = result.original.split()[0].lower().rstrip(",")
+            if name.first.lower() != original_first:
+                messages.append("Surname-first format detected and corrected")
 
         return PipelineResult(
             original=result.original,

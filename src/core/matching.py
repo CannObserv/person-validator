@@ -108,7 +108,7 @@ def search(conn: sqlite3.Connection, variants: list[WeightedVariant]) -> list[Ma
             base = 0.8 if row["is_primary"] else 0.7
             given = (row["given_name"] or "").lower()
             surname = (row["surname"] or "").lower()
-            weight = pair_weights.get((given, surname), 1.0)
+            weight = pair_weights.get((given, surname), 0.0)
             certainty = base * weight
             best[pid] = MatchResult(
                 person_id=pid,

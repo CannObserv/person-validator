@@ -67,7 +67,10 @@ def find(
     if pipeline_result.is_valid_name is False:
         raise HTTPException(
             status_code=422,
-            detail={"messages": pipeline_result.messages},
+            detail=[
+                {"type": "invalid_input", "loc": ["body", "name"], "msg": msg}
+                for msg in pipeline_result.messages
+            ],
         )
 
     normalized = pipeline_result.resolved

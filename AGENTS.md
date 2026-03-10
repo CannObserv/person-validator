@@ -42,10 +42,14 @@ person-validator/
 │   │   ├── key_validation.py # Single-sourced API key validation (raw SQL)
 │   │   ├── matching.py       # Name search (raw SQL); search(conn, variants) batch query
 │   │   ├── pipeline/         # Name normalization pipeline framework
-│   │   │   ├── __init__.py   # Public re-exports (Pipeline, Stage, PipelineResult, …)
-│   │   │   ├── base.py       # PipelineResult dataclass, Stage ABC, Pipeline runner
-│   │   │   ├── registry.py   # StageRegistry — config-driven pipeline assembly
-│   │   │   └── stages.py     # Concrete stages (BasicNormalization)
+│   │   │   ├── __init__.py          # Public re-exports (Pipeline, Stage, PipelineResult, WeightedVariant, …)
+│   │   │   ├── base.py              # WeightedVariant, PipelineResult, Stage ABC, Pipeline runner
+│   │   │   ├── registry.py          # StageRegistry — config-driven pipeline assembly
+│   │   │   ├── stages.py            # BasicNormalization stage
+│   │   │   ├── input_classification.py  # InputClassification — org reject, email decode, cleaning
+│   │   │   ├── name_parsing.py      # NameParsing — surname-first reorder, prefix/suffix strip (nameparser)
+│   │   │   ├── nickname_expansion.py    # NicknameExpansion — given-name variants at weight 0.85 (nicknames)
+│   │   │   └── title_extraction.py  # TitleExtraction — surname variant from title prefix at weight 0.70
 │   │   └── enrichment/       # Enrichment provider framework
 │   │       ├── __init__.py   # Public re-exports (all types, Provider, EnrichmentRunner, run_enrichment_for_person, …)
 │   │       ├── attribute_types.py  # Pydantic discriminated union; VALUE_TYPE_CHOICES, LABELABLE_TYPES
@@ -99,7 +103,25 @@ person-validator/
 `POST /v1/find` runs the input name through an ordered chain of `Stage` instances
 before searching the database. Each stage receives a `PipelineResult` and returns
 a modified copy — it may update `resolved` (the primary search string) and/or
-append additional strings to `variants`.
+append `WeightedVariant` entries to `variants`.
+
+**`PipelineResult` fields:**
+- `original` — the raw input string, never modified by any stage
+- `resolved` — the primary normalized/parsed string used as the top search variant
+- `variants: list[WeightedVariant]` — alternative search strings with associated weights (0.0–1.0)
+- `messages: list[str]` — human-readable notes about transformations applied (e.g. "Surname-first format detected and corrected")
+- `is_valid_name: bool | None` — set to `False` by `InputClassification` when the input is not a person name; the endpoint returns 422 in this case
+
+**`WeightedVariant`** is a frozen dataclass `(name: str, weight: float)`. Final
+certainty = base DB certainty × variant weight. The endpoint deduplicates
+variants by name before searching, keeping the highest weight for each.
+
+**Stage order (production default):**
+1. `InputClassification` — rejects org names (422), strips parenthetical noise, decodes email-format inputs; must run first to preserve comma/email evidence
+2. `BasicNormalization` — lowercase, strip non-alpha chars, collapse whitespace
+3. `NameParsing` — surname-first reorder (via `nameparser.HumanName`), prefix/suffix stripping
+4. `NicknameExpansion` — bidirectional given-name variants via `nicknames.NickNamer`; weight 0.85
+5. `TitleExtraction` — generates a surname-only variant when a title prefix is stripped; weight 0.70
 
 **Contract:**
 - Stages only update `resolved` and `variants` — they never mutate the incoming
@@ -114,9 +136,10 @@ append additional strings to `variants`.
 in `src/api/routes/v1.py`. New stages are added by registering them and updating
 the ordered name list — no changes to the endpoint or matching layer required.
 
-**Search:** `search(conn, variants)` in `matching.py` executes two batch SQL
-queries across all variants: one `IN` clause for full-name matches, one
-OR-expanded clause for (given, surname) pair matches.
+**Search:** `search(conn, variants: list[WeightedVariant])` in `matching.py`
+executes two batch SQL queries across all variants: one `IN` clause for full-name
+matches, one OR-expanded clause for (given, surname) pair matches. Final certainty
+= base certainty (1.0 / 0.9 / 0.8 / 0.7) × variant weight.
 
 ---
 
@@ -206,11 +229,20 @@ middle_name, surname, created_at, updated_at, names[], attributes[]) or
 
 #### POST /v1/find
 
-Accepts `{"name": "..."}`. Normalizes input (lowercase, strip non-letters,
-collapse whitespace), searches `persons_personname` for exact `full_name`
-matches and `given_name`+`surname` combinations. Returns 200 with scored
-results or 404 with empty results. Certainty scoring: primary exact = 1.0,
-other exact = 0.9, primary partial = 0.8, other partial = 0.7.
+Accepts `{"name": "..."}`. Runs the name through the 5-stage normalization
+pipeline (InputClassification → BasicNormalization → NameParsing →
+NicknameExpansion → TitleExtraction). Returns:
+
+- **422** (Pydantic-compatible `{"detail": [...]}` shape) when `InputClassification`
+  rejects the input as a non-person name (e.g. organization suffix detected).
+- **200** with scored results when matches are found.
+- **404** with empty results when no matches are found.
+
+Response body always includes `query` (original + normalized + variants list)
+and `messages` (list of transformation notes). Certainty scoring: base values
+(primary exact = 1.0, other exact = 0.9, primary partial = 0.8, other partial =
+0.7) multiplied by the variant's weight (1.0 for `resolved`, 0.85 for nickname
+variants, 0.70 for title-stripped variants).
 
 ## Secrets
 
