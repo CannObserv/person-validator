@@ -3,7 +3,7 @@
 import sqlite3
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from src.api.auth import require_api_key
@@ -20,14 +20,28 @@ from src.api.schemas import (
     QueryInfo,
 )
 from src.core.matching import search
-from src.core.pipeline import BasicNormalization, StageRegistry
+from src.core.pipeline import BasicNormalization, StageRegistry, WeightedVariant
+from src.core.pipeline.input_classification import InputClassification
+from src.core.pipeline.name_parsing import NameParsing
+from src.core.pipeline.nickname_expansion import NicknameExpansion
+from src.core.pipeline.title_extraction import TitleExtraction
 from src.core.reading import read_person
 
-# Assemble the default pipeline via the registry so stage order is
-# configuration-driven and new stages require zero endpoint changes.
 _registry = StageRegistry()
+_registry.register("input_classification", InputClassification)
 _registry.register("basic_normalization", BasicNormalization)
-_default_pipeline = _registry.build_pipeline(["basic_normalization"])
+_registry.register("name_parsing", NameParsing)
+_registry.register("nickname_expansion", NicknameExpansion)
+_registry.register("title_extraction", TitleExtraction)
+_default_pipeline = _registry.build_pipeline(
+    [
+        "input_classification",
+        "basic_normalization",
+        "name_parsing",
+        "nickname_expansion",
+        "title_extraction",
+    ]
+)
 
 v1_router = APIRouter(
     prefix="/v1",
@@ -49,15 +63,30 @@ def find(
 ) -> JSONResponse:
     """Find persons matching a name query."""
     pipeline_result = _default_pipeline.run(body.name)
+
+    if pipeline_result.is_valid_name is False:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {"type": "invalid_input", "loc": ["body", "name"], "msg": msg}
+                for msg in pipeline_result.messages
+            ],
+        )
+
     normalized = pipeline_result.resolved
-    # resolved is always searched first; variants produced by stages come after.
-    # dict.fromkeys preserves insertion order while deduplicating.
-    unique_variants: list[str] = list(dict.fromkeys([normalized, *pipeline_result.variants]))
+
+    # Deduplicate variants by name, keeping the highest weight.
+    # resolved always leads with weight 1.0.
+    seen: dict[str, float] = {normalized: 1.0}
+    for v in pipeline_result.variants:
+        if v.name not in seen or v.weight > seen[v.name]:
+            seen[v.name] = v.weight
+    unique_variants = [WeightedVariant(name=name, weight=weight) for name, weight in seen.items()]
 
     query_info = QueryInfo(
         original=body.name,
         normalized=normalized,
-        variants=unique_variants,
+        variants=[v.name for v in unique_variants],
     )
 
     matches = search(conn, unique_variants)
@@ -73,10 +102,14 @@ def find(
         for m in matches
     ]
 
+    messages = list(pipeline_result.messages)
+    if not results:
+        messages.append("No matching persons found")
+
     response = FindResponse(
         query=query_info,
         results=results,
-        message="No matching persons found" if not results else None,
+        messages=messages,
     )
 
     status_code = 200 if results else 404

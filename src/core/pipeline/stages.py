@@ -8,7 +8,7 @@ from src.core.pipeline.base import PipelineResult, Stage
 
 # Matches characters to remove: everything except ASCII letters, whitespace, hyphens.
 # Explicitly uses [^a-zA-Z\s-] rather than [^\w\s-] so that underscores and
-# digits are stripped, consistent with the normalize() function in matching.py.
+# digits are also stripped, consistent with normalize() in matching.py.
 _STRIP_RE = re.compile(r"[^a-zA-Z\s-]")
 # Collapse runs of whitespace (including tabs/newlines)
 _SPACE_RE = re.compile(r"\s+")
@@ -23,8 +23,7 @@ class BasicNormalization(Stage):
     - Collapsing whitespace and stripping leading/trailing space
 
     This stage only updates ``resolved``; it never appends to ``variants``.
-    It is the caller's responsibility to include ``resolved`` in the variant
-    list passed to the matching layer.
+    It passes ``messages`` and ``is_valid_name`` through unchanged.
     """
 
     def process(self, result: PipelineResult) -> PipelineResult:
@@ -37,4 +36,6 @@ class BasicNormalization(Stage):
             original=result.original,
             resolved=normalized,
             variants=list(result.variants),
+            messages=list(result.messages),
+            is_valid_name=result.is_valid_name,
         )

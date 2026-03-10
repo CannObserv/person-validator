@@ -58,7 +58,7 @@ class TestFindNoMatches:
         body = resp.json()
         assert body["query"]["original"] == "Nonexistent Person"
         assert body["results"] == []
-        assert body["message"] == "No matching persons found"
+        assert "No matching persons found" in body["messages"]
 
     @pytest.mark.anyio
     async def test_no_match_includes_normalized_query(self, client, valid_api_key, tmp_db):
@@ -70,7 +70,49 @@ class TestFindNoMatches:
         )
         assert resp.status_code == 404
         body = resp.json()
-        assert body["query"]["normalized"] == "bob smith jr"
+        # NameParsing strips generational suffixes — "Jr." is removed
+        assert body["query"]["normalized"] == "bob smith"
+
+
+class TestFindInputClassification422:
+    """Inputs classified as non-person-names return 422."""
+
+    @pytest.mark.anyio
+    async def test_org_suffix_returns_422(self, client, valid_api_key, tmp_db):
+        resp = await client.post(
+            "/v1/find",
+            json={"name": "Acme Corporation"},
+            headers={"X-API-Key": valid_api_key.raw_key},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_llc_suffix_returns_422(self, client, valid_api_key, tmp_db):
+        resp = await client.post(
+            "/v1/find",
+            json={"name": "Some Business LLC"},
+            headers={"X-API-Key": valid_api_key.raw_key},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_422_detail_shape_matches_pydantic(self, client, valid_api_key, tmp_db):
+        """Pipeline 422s must return the same shape as Pydantic validation errors."""
+        resp = await client.post(
+            "/v1/find",
+            json={"name": "Acme Corporation"},
+            headers={"X-API-Key": valid_api_key.raw_key},
+        )
+        assert resp.status_code == 422
+        body = resp.json()
+        # detail must be a list of dicts with "type", "loc", and "msg"
+        assert isinstance(body["detail"], list)
+        assert len(body["detail"]) >= 1
+        item = body["detail"][0]
+        assert "type" in item
+        assert "loc" in item
+        assert "msg" in item
+        assert any("organization" in entry["msg"].lower() for entry in body["detail"])
 
 
 class TestFindExactMatch:
@@ -216,6 +258,18 @@ class TestFindResponseSchema:
         assert "original" in body["query"]
         assert "normalized" in body["query"]
         assert "variants" in body["query"]
+
+    @pytest.mark.anyio
+    async def test_response_has_messages_list(self, client, valid_api_key, tmp_db):
+        """Response should always include messages as a list."""
+        resp = await client.post(
+            "/v1/find",
+            json={"name": "Nobody"},
+            headers={"X-API-Key": valid_api_key.raw_key},
+        )
+        body = resp.json()
+        assert "messages" in body
+        assert isinstance(body["messages"], list)
 
     @pytest.mark.anyio
     async def test_results_sorted_by_certainty_descending(

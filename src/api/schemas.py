@@ -53,7 +53,7 @@ class FindResponse(BaseModel):
 
     query: QueryInfo
     results: list[FindResult]
-    message: str | None = None
+    messages: list[str] = []
 
 
 class PersonNameSchema(BaseModel):
