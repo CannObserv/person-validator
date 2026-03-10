@@ -35,25 +35,24 @@ _TITLE_WEIGHT = 0.70
 
 
 class TitleExtraction(Stage):
-    """Extract a surname variant from occupational title prefixes.
+    """Extract a name variant from occupational title prefixes.
 
     Detects known title words at the start of the resolved name and
-    appends the remaining token(s) as a ``WeightedVariant`` at weight
-    ``0.70``. The resolved form is left unchanged.
+    appends the remaining token(s) joined as a ``WeightedVariant`` at
+    weight ``0.70``. The resolved form is left unchanged.
 
-    Only single trailing tokens are extracted (e.g. ``"senator smith"``
-    → ``"smith"``). Multi-token remainders are not appended to avoid
-    false positives.
+    Examples: ``"senator smith"`` → ``"smith"``;
+    ``"senator john smith"`` → ``"john smith"``.
     """
 
     def process(self, result: PipelineResult) -> PipelineResult:
-        """Append a surname variant if the resolved name starts with a title."""
+        """Append a name variant if the resolved name starts with a title."""
         tokens = result.resolved.lower().split()
         remainder = self._strip_title(tokens)
 
         variants = list(result.variants)
-        if remainder is not None and len(remainder) == 1:
-            variants.append(WeightedVariant(name=remainder[0], weight=_TITLE_WEIGHT))
+        if remainder is not None:
+            variants.append(WeightedVariant(name=" ".join(remainder), weight=_TITLE_WEIGHT))
 
         return PipelineResult(
             original=result.original,

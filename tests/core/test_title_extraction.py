@@ -31,6 +31,17 @@ class TestTitleDetection:
         for v in result.variants:
             assert v.weight == TITLE_WEIGHT
 
+    def test_senator_prefix_extracts_full_name(self):
+        result = _run("senator john smith")
+        names = [v.name for v in result.variants]
+        assert "john smith" in names
+
+    def test_multi_word_remainder_has_correct_weight(self):
+        result = _run("senator john smith")
+        for v in result.variants:
+            if v.name == "john smith":
+                assert v.weight == TITLE_WEIGHT
+
     def test_no_title_produces_no_variants(self):
         result = _run("alice smith")
         assert result.variants == []
